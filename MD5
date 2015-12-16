@@ -1,0 +1,12 @@
+89a98b878e5cb0296a70c96a7016c3d1 *DESCRIPTION
+ba9648c6a5e33363a79afb4bdc0da360 *NAMESPACE
+e133f7a18afaaac13cc0c7f46a4ce483 *R/qrcm.R
+bf61709f3fe6fcfe6566f5f94083fe26 *man/iqr.Rd
+73b75bfc43031e32c375bb84a112227b *man/plf.Rd
+da6b901213f908c36b6934e15b0ce58f *man/plot.iqr.Rd
+643b486c64b89c7c48498a28961bea84 *man/predict.iqr.Rd
+3ddb8332025dfc21d708068bc3dc17cd *man/qrcm-internal.Rd
+aec4e1abd89bff54100f47d760383e8b *man/qrcm-package.Rd
+323736d92dbfdbe08c13dae78b78ce95 *man/slp.Rd
+08cd59e485930b6cacfcb8b37ba55f52 *man/summary.iqr.Rd
+a423a432fe976834436979c64cafeb1f *man/test.fit.Rd
