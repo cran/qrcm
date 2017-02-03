@@ -7,7 +7,7 @@ Summary After Quantile Regression Coefficients Modeling
 Summary of an object of class \dQuote{\code{iqr}}.
 }
 \usage{
-\method{summary}{iqr}(object, p, cov = FALSE, k = 10, \ldots)
+\method{summary}{iqr}(object, p, cov = FALSE, \ldots)
 }
 \arguments{
   \item{object}{
@@ -19,10 +19,6 @@ an object of class \dQuote{\code{iqr}}, the result of a call to \code{\link{iqr}
   \item{cov}{
   logical. If \kbd{TRUE}, the covariance matrix of \eqn{\beta(p)} is reported.
   Ignored if \kbd{p} is missing.
-}
-  \item{k}{
-  the number of subdivisions (>= 3) for a chi-squared goodness-of-fit test. If a vector is supplied, the test is performed
-  at each value of \kbd{k}. Default is \kbd{k = 10}. See \sQuote{Value} for a description of the test.
 }
 \item{\ldots}{for future methods.}
 }
@@ -39,7 +35,7 @@ a standard summary of the estimated quantile regression coefficients
 is returned for each value of \kbd{p}. If \kbd{cov = TRUE}, the covariance
 matrix is also reported.
 
-If \kbd{p} is missing (the default), a list with the following items:
+If \kbd{p} is missing (the default), a list with the following items is returned:
 \item{converged}{logical value indicating the convergence status.}
 \item{n.it}{the number of iterations.}
 \item{n}{the number of observations.}
@@ -51,9 +47,7 @@ order of the quantile. See \sQuote{Examples}.}
 \item{se}{the estimated standard errors.}
 \item{test.x}{Wald test for the covariates. Each \emph{row} of \code{coefficients} is tested for nullity.}
 \item{test.p}{Wald test for the building blocks of the quantile function. Each \emph{column} of \code{coefficients} is tested for nullity.}
-\item{obj.function}{the minimized loss function.}
-\item{test.fit}{a chi-squared test for goodness-of-fit. 
-If the model is correctly specified, \code{object$CDF} has a Uniform distribution. The unit interval is divided into \kbd{k} subintervals, and a Hosmer-Lemeshow chi-squared test with \kbd{k - 2} degrees of freedom is performed to compare the empirical frequency of each subinterval with its expected value under the null hypothesis. This test is generally reliable but may be too conservative. A more accurate goodness-of-fit procedure is offered by \code{\link{test.fit}}.}
+\item{obj.function}{the minimized loss function (\kbd{NULL} if the data are censored or truncated.}
 \item{call}{the matched call.}
 }
 \author{
@@ -62,7 +56,11 @@ Paolo Frumento \email{paolo.frumento@ki.se}
 \seealso{
 \code{\link{iqr}}, for model fitting; \code{\link{predict.iqr}} and \code{\link{plot.iqr}},
 for predicting and plotting objects of class \dQuote{\code{iqr}}. \code{\link{test.fit}}
-for another goodness-of-fit test.
+for a goodness-of-fit test.
+}
+\note{
+In version 1.0 of the package, a chi-squared goodness-of-fit test was provided.
+The test appeared to be very unreliable and has now been removed. Use \code{test.fit}.
 }
 \examples{
 
@@ -86,7 +84,6 @@ summary(model)
   # beta0(p) = model$coef[1,]*b(p)
   # beta1(p) = model$coef[2,]*b(p); etc.
 # x2 and (p, p^2) are not significant
-# the goodness-of-fit test is passed
 
 
 summary(model, p = c(0.25, 0.75)) # summary of beta(p) at selected quantiles

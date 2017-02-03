@@ -4,24 +4,29 @@
 Quantile Regression Coefficients Modeling
 }
 \description{
-This function implements Frumento and Bottai's (2015) method for quantile regression
+This function implements Frumento and Bottai's (2016) method for quantile regression
 coefficients modeling (qrcm). Quantile regression coefficients are described
-by (flexible) parametric functions of the order of the quantile.
+by (flexible) parametric functions of the order of the quantile. From version 2.0,
+this function can also be used with censored and truncated data, as described in
+Frumento and Bottai (2017).
 }
 \usage{
-iqr(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-5, maxit)
+iqr(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-6, maxit)
 }
 \arguments{
   \item{formula}{
     a two-sided formula of the form \code{y ~ x1 + x2 + \ldots}: 
-    a symbolic description of the quantile regression model.
+    a symbolic description of the quantile regression model. The left side of the formula
+    should be \code{Surv(time,event)} if the data are right-censored, and \code{Surv(time,time2,event)}
+    if the data are left-truncated (\code{time < time2}, \code{time} can be \kbd{-Inf}).
   }
   \item{formula.p}{
     a one-sided formula of the form \code{~ b1(p, \ldots) + b2(p, \ldots) + \ldots}, describing how 
     quantile regression coefficients depend on \kbd{p}, the order of the quantile.
   }
   \item{weights}{
-    an optional vector of weights to be used in the fitting process.}
+    an optional vector of weights to be used in the fitting process. The weights will always be normalized
+    to sum to the sample size. This implies that, for example, using double weights will \emph{not} halve the standard errors.}
   \item{data}{
     an optional data frame, list or environment containing the variables in \code{formula}.
   }
@@ -63,9 +68,11 @@ iqr(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-5, maxit)
   Legendre polynomial (see \code{\link{slp}}). Any user-defined function \eqn{b(p, \ldots)}
   can be used, see \sQuote{Examples}.
   
-  Estimation of \eqn{\theta} is carried out by minimizing an integrated loss function, corresponding to the
+  Estimation of \eqn{\theta} is carried out by minimizing the
   integral, over \eqn{p}, of the loss function of standard quantile regression. This
   motivates the acronym \code{iqr} (integrated quantile regression).
+  From version 2.0 of the package, censored and truncated data are also allowed,
+  as described in Frumento and Bottai (2017).
 }
 \value{
 An object of class \dQuote{\code{iqr}}, a list containing the following items:
@@ -73,7 +80,7 @@ An object of class \dQuote{\code{iqr}}, a list containing the following items:
 \item{converged}{logical. The convergence status.}
 \item{n.it}{the number of iterations.}
 \item{call}{the matched call.}
-\item{obj.function}{the value of the minimized integrated loss function.}
+\item{obj.function}{the value of the minimized integrated loss function (\kbd{NULL} if the data are censored or truncated).}
 \item{mf}{the model frame used.}
 \item{PDF, CDF}{the fitted values of the conditional probability density function (\acronym{PDF})
 and cumulative distribution function (\acronym{CDF}).}
@@ -86,8 +93,10 @@ The generic accessor functions \code{coefficients}, \code{formula}, \code{terms}
 \code{vcov} are available to extract information from the fitted model.
 }
 \references{
-Frumento, P., and Bottai, M. (2015). \emph{Parametric modeling of quantile regression coefficient functions}.
-Biometrics, doi: 10.1111/biom.12410.
+Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72(1), 74-84, doi: 10.1111/biom.12410.
+
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics (in press), doi:10.1111/biom.12675.
+
 }
 \author{
 Paolo Frumento \email{paolo.frumento@ki.se}
@@ -95,22 +104,21 @@ Paolo Frumento \email{paolo.frumento@ki.se}
 \note{
 
   By expressing quantile regression coefficients as functions of \eqn{p}, a parametric model for the conditional
-  quantile function is specified. The induced \acronym{PDF} and \acronym{CDF} can be used as diagnostic tools.
+  quantile function is specified. The induced \acronym{PDF} and \acronym{CDF} can be used to diagnose model fit.
   Negative values of \code{PDF} indicate quantile crossing, i.e., the conditional quantile function is not
   monotonically increasing. Null values of \code{PDF} indicate observations that lie outside the
   estimated support of the data, defined by quantiles of order 0 and 1. If null or negative \code{PDF}
   values occur for a relatively large proportion of data, the model is probably misspecified or ill-defined.
   If the model is correct, the fitted \code{CDF} should approximately follow a Uniform(0,1) distribution.
-  This idea is used to implement a goodness-of-fit test, see \code{\link{summary.iqr}}
-  and \code{\link{test.fit}}.
+  This idea is used to implement a goodness-of-fit test, see \code{\link{test.fit}}.
 
   The intercept can be excluded from \code{formula}, e.g., 
   \code{iqr(y ~ -1 + x)}. This, however, implies that when \code{x = 0},
-  \code{y} is always {0}. See example 5 in \sQuote{Examples}.
+  \code{y} is always {0}. See example 5.
   The intercept can also be removed from \code{formula.p}. 
   This is recommended if the data are bounded. For example, for strictly positive data,
   use \code{iqr(y ~ 1, formula.p = -1 + slp(p,3))} to force the smallest quantile
-  to be zero. See example 6 in \sQuote{Examples}.
+  to be zero. See example 6.
   
 
 }
@@ -263,6 +271,31 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   # first column of coefficients: (beta0, beta1)
   # top-right coefficient: residual standard deviation
   
+
+
+
+  ##### Example 8 ### censored data
+  
+  n <- 1000
+  x <- runif(n,0,5)
+	
+  u <- runif(n)
+  beta0 <- -log(1 - u)
+  beta1 <- 0.2*log(1 - u)
+  t <- beta0 + beta1*x  # time variable
+  c <- rexp(n,2)        # censoring variable
+  y <- pmin(t,c)        # observed events
+  d <- (t <= c)         # 1 = event, 0 = censored
+  
+  iqr(Surv(y,d) ~ x, formula.p = ~ I(log(1 - p)))
+  
+  ##### Example 8 (cont.) ### censored and truncated data
+
+  z <- rexp(n,10)   # truncation variable
+  w <- which(y > z) # only observe z,y,d,x when y > z
+  z <- z[w]; y <- y[w]; d <- d[w]; x <- x[w]
+
+  iqr(Surv(z,y,d) ~ x, formula.p = ~ I(log(1 - p)))
 }
 \keyword{models}
 \keyword{regression}

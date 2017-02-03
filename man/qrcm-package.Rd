@@ -5,24 +5,24 @@
 Quantile Regression Coefficients Modeling
 }
 \description{
-This package implements Frumento and Bottai's (2015) method for quantile regression
+This package implements Frumento and Bottai's (2016, 2017) method for quantile regression
 coefficient modeling (qrcm), in which quantile regression coefficients are described
 by (flexible) parametric functions of the order of the quantile. This permits modeling
-the entire conditional quantile function of a response variable.
+the entire conditional quantile function of a response variable. 
 }
 \details{
 \tabular{ll}{
 Package: \tab qrcm\cr
 Type: \tab Package\cr
-Version: \tab 1.0\cr
-Date: \tab 2015-12-14\cr
+Version: \tab 2.0\cr
+Date: \tab 2017-02-02\cr
 License: \tab GPL-2\cr
 }
-The function \code{\link{iqr}} permits specifying the regression model.
+The function \code{\link{iqr}} permits specifying the regression model, allowing for censored and truncated outcomes.
 Two special functions, \code{\link{slp}} and \code{\link{plf}}, are provided to facilitate model building.
 The auxiliary functions \code{\link{summary.iqr}}, \code{\link{predict.iqr}}, and \code{\link{plot.iqr}}
 can be used to extract information from the fitted model, while \code{\link{test.fit}}
-provides additional diagnostic tools.
+is used to assess the model fit.
 }
 \author{
 Paolo Frumento
@@ -30,8 +30,12 @@ Paolo Frumento
 Maintainer: Paolo Frumento <paolo.frumento@ki.se>
 }
 \references{
-Frumento, P., and Bottai, M. (2015). \emph{Parametric modeling of quantile regression coefficient functions}.
-Biometrics, doi: 10.1111/biom.12410.}
+Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72(1), 74-84, doi: 10.1111/biom.12410.
+
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics (in press), doi:10.1111/biom.12675.
+
+}
+
 \keyword{ package }
 \examples{
 

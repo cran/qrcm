@@ -1,12 +1,16 @@
-#' @importFrom stats integrate splinefun model.response model.weights model.matrix terms model.frame delete.response coef pnorm qexp
-#' @importFrom stats sd prcomp lm.wfit pchisq weighted.mean printCoefmat .getXlevels pchisq runif ks.test vcov nobs
-#' @importFrom survival Surv is.Surv survfit coxph
-#' @importFrom graphics plot points abline
-#' @importFrom utils menu
+#' @importFrom stats integrate splinefun model.response model.weights model.matrix terms model.frame delete.response coef pnorm qchisq
+#' @importFrom stats approxfun sd prcomp lm.wfit pchisq weighted.mean printCoefmat .getXlevels pchisq runif vcov nobs predict pbeta qbeta
+#' @importFrom survival Surv survfit coxph
+#' @importFrom graphics plot points abline polygon
+#' @importFrom grDevices adjustcolor
+#' @importFrom utils menu setTxtProgressBar txtProgressBar tail
 #' @import pch
 
+
+pmax0 <- function(x){(x + abs(x))/2}
+
 #' @export
-iqr <- function(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-5, maxit){
+iqr <- function(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-6, maxit){
 	cl <- match.call()
 	mf <- match.call(expand.dots = FALSE)
 	m <- match(c("formula", "weights", "data"), names(mf), 0L)
@@ -14,23 +18,11 @@ iqr <- function(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-5, m
 	mf$drop.unused.levels <- TRUE
 	mf[[1L]] <- as.name("model.frame")
 	mf <- eval(mf, parent.frame())
-	ctiqr.internal(mf = mf,cl = cl, formula.p = formula.p, tol = tol, maxit = maxit, type = "iqr", s = s)
+	ctiqr.internal(mf = mf,cl = cl, formula.p = formula.p, tol = tol, maxit = maxit, s = s)
 }
 
 
-ctiqr <- function(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-5, maxit){
-	cl <- match.call()
-	mf <- match.call(expand.dots = FALSE)
-	m <- match(c("formula", "weights", "data"), names(mf), 0L)
-	mf <- mf[c(1L, m)]
-	mf$drop.unused.levels <- TRUE
-	mf[[1L]] <- as.name("model.frame")
-	mf <- eval(mf, parent.frame())
-	ctiqr.internal(mf = mf,cl = cl, formula.p = formula.p, tol = tol, maxit = maxit, type = "ctiqr", s = s)
-}
-
-
-check.in <- function(mf, formula.p, type, s){
+check.in <- function(mf, formula.p, s){
 
 	if(!missing(s) && all(s == 0)){stop("'s' cannot be all zero")}
 	explore.s <- function(s, dim){
@@ -48,26 +40,38 @@ check.in <- function(mf, formula.p, type, s){
 		out
 	}
 
-	# y,z,d, weights	
+	# weights
+
+	if(any((weights <- model.weights(mf)) < 0)){stop("negative 'weights'")}
+	if(is.null(weights)){weights <- rep.int(1, nrow(mf)); alarm <- FALSE}
+	else{
+	alarm <- (weights == 0)
+	  sel <- which(!alarm)
+	  mf <- mf[sel,]
+	  weights <- weights[sel]
+	  weights <- weights/mean(weights)
+	}
+	if(any(alarm)){warning("observations with null weight will be dropped", call. = FALSE)}
+	if((n <- nrow(mf)) == 0){stop("zero non-NA cases", call. = FALSE)}
+	
+	# y,z,d
 
 	zyd <- model.response(mf)
-	if(type == "ctiqr" && !is.Surv(zyd))
-	  {stop("the model response must be a Surv() object")}
 	type <- attributes(zyd)$type
-	if((n <- nrow(zyd <- cbind(zyd))) == 0){stop("zero non-NA cases")}
-	if(is.null(type)){y <- zyd[,1]; z <- rep.int(-Inf,n); d <- rep.int(1,n); type <- "iqr"}
+	zyd <- cbind(zyd)
+
+	if(is.null(type)){y <- zyd[,1]; z <- rep.int(-Inf,n); d <- rep.int(1,n); type <- fittype <- "iqr"}
 	else if(type == "right"){
 	  y <- zyd[,1]; z <- rep.int(-Inf,n); d <- zyd[,2]
 	  type <- (if(any(d == 0)) "ciqr" else "iqr")
+	  fittype <- "ciqr"
 	}
 	else if(type == "counting"){
-	  z <- zyd[,1]; y <- zyd[,2]; d <- zyd[,3]; type <- "ctiqr"
+	  z <- zyd[,1]; y <- zyd[,2]; d <- zyd[,3]; type <- fittype <- "ctiqr"
 	  if(all(z < min(y))){type <- (if(any(d == 0)) "ciqr" else "iqr")}
 	}
+	attr(type, "fittype") <- fittype
 	if(!(any(d == 1))){stop("all data are censored")}
-	if(any((weights <- model.weights(mf)) < 0)){stop("negative 'weights'")}
-	weights <- (if(is.null(weights)) rep.int(1,n) else c(weights)/sum(weights)*n)
-
 
 	# x and b(p)
 
@@ -75,20 +79,30 @@ check.in <- function(mf, formula.p, type, s){
 	termlabelsX <- attr(attr(mf, "terms"), "term.labels")
 	assignX <- attr(X, "assign")
 	coefnamesX <- colnames(X)
-	p10 <- seq.int(1/1024, 1023/1024, length.out = 1023)
-	p <- c(0.1^(6:4), p10, 1 - 0.1^(4:6))
+	
+	# p1 is used to evaluate the splinefuns. A non-evenly spaced grid, with more values on the tails.
+	# p2 is for external use (p.bisec). A grid with p reachable by bisection on the p scale.
+	# p3 is for internal use (p.bisec.internal). A grid with p reachable by bisection on the index scale.
+	p1 <- pbeta(seq.int(qbeta(1e-6,2,2), qbeta(1 - 1e-6,2,2), length.out = 1000),2,2)
+	p2 <- (1:1023)/1024
+  p3 <- pbeta(seq.int(qbeta(1/(1000*n),2.5,2.5), qbeta(1 - 1/(1000*n),2.5,2.5), length.out = 1023),2.5,2.5)
 
 	if((use.slp <- is.slp(formula.p))){
 		k <- attr(use.slp, "k")
 		intercept <- attr(use.slp, "intercept") 	# slp(0) = 0?
-		intB <- attr(use.slp, "intB")			# b(p) includes 1?
+		intB <- attr(use.slp, "intB")			        # b(p) includes 1?
 		assignB <- (1 - intB):k
 		termlabelsB <- paste("slp", 1:k, sep = "")
 		coefnamesB <- (if(intB) c("(Intercept)", termlabelsB) else termlabelsB)
 		k <- k + intB
 	}
 	else{
-		k <- ncol(B <- model.matrix(formula.p, data = data.frame(p = p)))
+	  B <- model.matrix(formula.p, data = data.frame(p = c(p1,p2,p3)))
+	  B1 <- B[1:1000,, drop = FALSE]
+	  B2 <- B[1001:2023,, drop = FALSE]
+	  B3 <- B[2024:3046,, drop = FALSE]
+
+		k <- ncol(B)
 		assignB <- attr(B, "assign")
 		termlabelsB <- attr(terms(formula.p), "term.labels")
 		coefnamesB <- colnames(B)
@@ -98,7 +112,7 @@ check.in <- function(mf, formula.p, type, s){
 		if(any(dim(s) != c(q,k))){stop("wrong size of 's'")}
 		if(any(s != 0 & s != 1)){stop("'s' can only contain 0 and 1")}
 	}
-	
+
 	# x singularities (set s = 0 where singularities occur)
 	# x is dropped as in a linear model, irrespective of s.
 
@@ -107,19 +121,19 @@ check.in <- function(mf, formula.p, type, s){
 
 	# b(p) singularities. Dropped row by row, based on s
 
-	if(!use.slp && qr(B)$rank < k){
+	if(!use.slp && qr(B3)$rank < k){
 		u <- explore.s(s,1)
 		for(j in unique(u)){
 			sel <- which(s[which(u == j)[1],] == 1)
 			if(length(sel) > 1){
-				vbj <- qr(B[,sel, drop = FALSE])
+				vbj <- qr(B3[,sel, drop = FALSE])
 				if((rj <- vbj$rank) < length(sel)){
 					s[u == j, sel[-vbj$pivot[1:rj]]] <- 0
 				}
 			}
 		}
 	}
-
+	
 	# location-scale statistics for x, b(p), and y
 
 	ry <- range(y); my <- ry[1]; My <- ry[2]
@@ -131,12 +145,12 @@ check.in <- function(mf, formula.p, type, s){
 	if(length(constX) > 1){zeroX <- c(zeroX, constX[-1]); constX <- constX[1]}
 
 	if(!use.slp){
-		sB <- apply(B,2,sd); mB <- colMeans(B)
+		sB <- apply(B3,2,sd); mB <- colMeans(B3)
 		intB <- (length((constB <- which(sB == 0 & mB != 0))) > 0); varsB <- which(sB > 0)
 		if(length(varsB) == 0){stop("the quantile function must depend on p")}
 		if(length(constB) > 1){stop("remove multiple constant functions from 'formula.p'")}
 		if(any(sB == 0 & mB == 0)){stop("remove zero functions from 'formula.p'")}
-		sB[constB] <- B[1,constB]; mB[constB] <- 0
+		sB[constB] <- B3[1,constB]; mB[constB] <- 0
 	}
 	else{
 		sB <- rep.int(1, k); mB <- rep.int(0, k)
@@ -150,6 +164,25 @@ check.in <- function(mf, formula.p, type, s){
 	else{for(j in varsX){if(any(s[j,] > s[constX,])){mX[j] <- 0}}}
 	if(!intB | (intB && any(s[,constB] == 0))){mB <- rep.int(0,k)}
 
+	# Create bfun (only used by post-estimation functions)
+
+	if(!use.slp){
+		bfun <- list()
+		if(intB){bfun[[constB]] <- function(p, deriv = 0){rep.int(1 - deriv, length(p))}}
+		for(j in varsB){bfun[[j]] <- make.bfun(p1,B1[,j])}
+		names(bfun) <- coefnamesB
+		attr(bfun, "k") <- k
+	}
+	else{
+		bfun <- slp.basis(k - intB, intercept)
+		if(!intB){bfun$a[1,1] <- bfun$A[1,1] <- bfun$AA[1,1] <- 0}
+		attr(bfun, "intB") <- intB
+		B2 <- apply_bfun(bfun,p2, "bfun")
+	}
+
+	attr(bfun, "bp") <- B2
+	attr(bfun, "p") <- p2
+
 
 	# first scaling of x, b(p), y
 
@@ -158,7 +191,7 @@ check.in <- function(mf, formula.p, type, s){
 	y <- (y - my)/(My - my)*10
 	z <- z0 <- (z - my)/(My - my)*10
 	z[z < min(y)] <- -Inf
-	if(!use.slp){B <- scale(B, center = mB, scale = sB)}
+	if(!use.slp){B3 <- scale(B3, center = mB, scale = sB)}
 
 	# principal component rotations that I can apply to x and b(p); second scaling
 
@@ -190,48 +223,53 @@ check.in <- function(mf, formula.p, type, s){
 			sel <- which(uB == j)
 			if(intB){sel <- sel[sel != constB]}
 			if(length(sel) > 1 && B_in[sel[1]] != 0){
-				PC <- prcomp(B[,sel], center = FALSE, scale. = FALSE)
-				B[,sel] <- PC$x
+				PC <- prcomp(B3[,sel], center = FALSE, scale. = FALSE)
+				B3[,sel] <- PC$x
 				rotB[sel,sel] <- PC$rotation
 			}
 		}
-		MB <- colMeans(B); MB[mB == 0] <- 0
-		SB <- apply(B,2,sd); SB[constB] <- 1
-		B <- scale(B, center = MB, scale = SB)
+		MB <- colMeans(B3); MB[mB == 0] <- 0
+		SB <- apply(B3,2,sd); SB[constB] <- 1
+		B3 <- scale(B3, center = MB, scale = SB)
 	}
 
-	# Create bfun
+	# Create a pre-evaluated basis (only used internally)
 
+	p <- p3
+	
 	if(!use.slp){
-		bfun <- list()
-		if(intB){
-			bfun[[constB]] <- list(
-				bfun = function(p, deriv = 0){rep.int(1 - deriv, length(p))},
-				Bfun = function(p){p}, BBfun = function(p){0.5*p^2}, BB1 = 0.5
-			)
-		}
-		for(j in varsB){bfun[[j]] <- make.bfun(p,B[,j], type)}
-		names(bfun) <- coefnamesB
-		bfun$BB1 <- sapply(bfun, function(x){x$BB1})
-		bfun$BB1 <- matrix(rep(bfun$BB1, each = n), n)
-		attr(bfun, "k") <- k
-		bfun10 <- B[4:1026,, drop = FALSE]
+	  bp <- B3
+	  dp <- p[-1] - p[-1023]
+	  b1p <- num.fun(dp,bp, "der")
+	  Bp <- num.fun(dp,bp, "int")
+	  BBp <- num.fun(dp,Bp, "int")
+	  BB1 <- BBp[1023,]
 	}
 	else{
-		k <- k - intB
-		bfun <- slp.basis(k, intercept)
-		bfun$BB1 <- colSums(bfun$AA)
-		if(!intB){bfun$a[1,1] <- bfun$A[1,1] <- bfun$AA[1,1] <- 0; bfun$BB1 <- bfun$BB1[-1]}
-		bfun$BB1 <- matrix(rep(bfun$BB1, each = n), n)
-		attr(bfun, "intB") <- intB
-
-		pp <- cbind(1,p10)
-		if(k > 1){for(j in 2:k){pp <- cbind(pp, pp[,j]*p10)}}
-		bfun10 <- pp%*%bfun$a
-		if(!intB){bfun10 <- bfun10[,-1, drop = FALSE]}
+	  k <- attr(bfun, "k")
+	  pp <- matrix(, 1023, k + 1)
+	  pp[,1] <- 1; pp[,2] <- p
+	  if(k > 1){for(j in 2:k){pp[,j + 1] <- pp[,j]*p}}
+	  bp <- tcrossprod(pp, t(bfun$a))
+    b1p <- cbind(0, tcrossprod(pp[,1:k, drop = FALSE], t(bfun$a1[-1,-1, drop = FALSE])))
+    pp <- cbind(pp, pp[,k + 1]*p, pp[,k + 1]*p^2)
+	  Bp <- tcrossprod(pp[,2:(k + 2)], t(bfun$A))
+	  BBp <- tcrossprod(pp[,3:(k + 3)], t(bfun$AA))
+	  BB1 <- colSums(bfun$AA)
+	    
+	  if(!intB){
+	    bp <- bp[,-1, drop = FALSE]
+	    b1p <- b1p[,-1, drop = FALSE]
+	    Bp <- Bp[,-1, drop = FALSE]
+	    BBp <- BBp[,-1, drop = FALSE]
+	    BB1 <- BB1[-1]
+	  }
 	}
-	attr(bfun, "p10") <- p10
-	attr(bfun, "bfun10") <- bfun10
+	BB1 <- matrix(rep(BB1, each = n), n)
+	bpij <- NULL; for(i in 1:ncol(bp)){bpij <- cbind(bpij, bp*bp[,i])}
+
+	internal.bfun <- list(p = p, bp = bp, b1p = b1p, Bp = Bp, BBp = BBp, BB1 = BB1, bpij = bpij)
+  attr(internal.bfun, "pfun") <- approxfun(c(p[1], 0.5*(p[-1023] + p[-1])),p, method = "constant", rule = 2)
 
 	# output. U = the original variables. V = the scaled/rotated variables.
 	# stats.B, stats.X, stats.y = lists with the values use to scale/rotate
@@ -242,9 +280,10 @@ check.in <- function(mf, formula.p, type, s){
 		intercept = intX, term.labels = termlabelsX, assign = assignX, coef.names = coefnamesX)
 	stats.y <- list(m = my, M = My)
 
-	V <- list(X = X, y = y, z = z, d = d, weights = weights)
+	V <- list(X = X, Xw = X*weights, y = y, z = z, d = d, weights = weights)
 	if(type == "ctiqr"){V$z0 <- z0}
-	list(U = U, V = V, stats.B = stats.B, stats.X = stats.X, stats.y = stats.y, bfun = bfun, s = s, type = type)
+	list(mf = mf, U = U, V = V, stats.B = stats.B, stats.X = stats.X, stats.y = stats.y, 
+		internal.bfun = internal.bfun, bfun = bfun, s = s, type = type)
 }
 
 
@@ -358,48 +397,60 @@ check.out <- function(theta, S, covar){
 
 # integrated quantile regression
 
-ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, type, s){
+ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s){
 
-	n <- nrow(mf)
-	A <- check.in(mf, formula.p, type, s); V <- A$V; U <- A$U; s <- A$s; type <- A$type
+	A <- check.in(mf, formula.p, s); V <- A$V; U <- A$U; s <- A$s; type <- A$type
+	mf <- A$mf; n <- nrow(mf)
 	S <- list(B = A$stats.B, X = A$stats.X, y = A$stats.y)
-	bfun <- A$bfun; attributes(bfun) <- c(attributes(bfun), S$B)
+	attributes(A$bfun) <- c(attributes(A$bfun), S$B)
+	bfun <- A$internal.bfun
 
-	if(missing(maxit)){maxit <- 10 + 10*attr(bfun, "k")*ncol(V$X)}
-	else{maxit <- pmax(10, maxit)}
 
-	if((q <- length(S$X$vars)) > 0){
-		xx <- list(V$X, cbind(V$X, V$X^2))
-		DF <- c(10,10,20,20,10,10,20,20)
-		wX <- c(1,1,1,1,2,2,2,2)
-		wy <- c(1,2,1,2,1,2,1,2)
-	}
-	else{xx <- list(V$X); wX <- c(1,1,1,1,1,1); DF <- c(5,10,20,5,10,20); wy <- c(1,1,1,2,2,2)}
+	if(missing(maxit)){maxit <- 10 + 10*sum(s)}
+	else{maxit <- max(10, maxit)}
+	
+	
+	q <- length(S$X$vars)
 	if(type != "iqr" | q > 0){
-		yy <- list(V$y, qexp((rank(V$y) - 0.5)/n))
-		if(type == "ctiqr"){zz <- list(V$z, splinefun(yy[[1]],yy[[2]], method = "monoH.FC")(V$z))}
-		else{zz <- list(V$z, V$z)}
+	  Ty <- trans(V$z,V$y,V$d,V$weights, type)
+	  yy <- Ty$f(V$y)
+	  zz <- (if(type == "ctiqr") Ty$f(V$z) else V$z)
 	}
-	else{yy <- zz <- NULL; DF <- wX <- wy <- 1}
-
+	else{yy <- zz <- NULL}
+	
+	theta0 <- start.theta(V$y, V$z, V$d, V$X, V$weights, bfun, 
+	   df = max(5, min(15, round(n/30/(q + 1)))), yy, zz, s = s)
+	
+	
 	Fit <- NULL
-	for(i in 1:length(DF)){
+	fit.ok <- FALSE
+	safeit <- 5
+	try.count <- 0
+	eeTol <- 0.5
+	eps0 <- 0.1
+	
+	while(!fit.ok){
+	  
+	  try.count <- try.count + 1
 
-		theta0 <- start.theta(V$y, V$z, V$d, V$X, V$weights, bfun, df = DF[i], 
-			xx = xx[[wX[i]]], yy = yy[[wy[i]]], zz = zz[[wy[i]]], s = s)
+		fit <- iqr.newton(theta0, V$y, V$z, V$d, V$X, V$Xw, 
+			bfun, s = s, type = type, tol = tol, maxit = maxit, safeit = safeit, eps0 = eps0)
 
-		fit <- iqr.newton(theta0, V$y, V$z, V$d, V$X, V$weights, 
-			bfun, type = type, tol = tol, maxit = maxit, s = s)
-
-		if(fit.ok <- (fit$rank == ncol(fit$jacobian) & mean(abs(fit$ee)) < 1)){
-			covar <- try(cov.theta(fit$coefficients, V$y, V$z, V$d, V$X,
-				V$weights, bfun, fit$CDF.y, fit$CDF.z, type, s = s), silent = TRUE)
+		if(fit.ok <- (fit$rank == ncol(fit$jacobian) & max(abs(fit$ee)) < eeTol)){
+			covar <- try(cov.theta(fit$coefficients, V$y, V$z, V$d, V$X, V$Xw,
+				V$weights, bfun, fit$p.star.y, fit$p.star.z, type, s = s), silent = TRUE)
 			fit.ok <- (class(covar) != "try-error")
 		}
 
 		covar.ok <- (if(fit.ok){(qr(covar$Q)$rank == fit$rank)} else FALSE)
 		if(fit.ok & covar.ok){break}
 		else if(fit.ok){Fit <- fit; Cov <- covar}
+		
+		if(try.count > 10 && !is.null(Fit)){break}
+		if(try.count == 20){break}
+		eeTol <- eeTol + 0.5
+		safeit <- safeit + 2
+		eps0 <- eps0/2
 	}
 
 	if(!fit.ok && is.null(Fit)){stop("unable to fit the model: this can be due to severe misspecification")}
@@ -411,34 +462,25 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, type, s){
 
 	if(type == "iqr"){
 		v <- (S$y$M - S$y$m)/10
-		fit$obj.function <- iobjfun(fit$coef, V$y,V$X,V$weights, bfun, fit$CDF.y)*v
+		fit$obj.function <- iobjfun(fit$coef, V$y,V$X,V$weights, bfun, fit$p.star.y)*v
 	}
 
-	# fitted CDFs
+	# fitted CDFs (for internal use, precision ~ 0.001)
 
-	CDFs <- data.frame(CDF.y = fit$CDF.y, CDF.t = fit$CDF.y,
-                     CDF.z = (if(type == "ctiqr") fit$CDF.z else NA))
-	if(type != "iqr"){
-		kmfit <- suppressWarnings(km(fit$CDF.z, fit$CDF.y, V$d, V$weights, type))
-		CDFs$CDF.t <- kmfit$Q((1:n)/(n + 1))
-		attr(CDFs, "km") <- kmfit
-	}
+  CDFs <- data.frame(CDF.y = fit$py, 
+     CDF.z = (if(type == "ctiqr") fit$pz else NA))
+  attr(CDFs, "km") <- km(CDFs$CDF.z, CDFs$CDF.y, V$d, V$weights, type)
 
 	# output
-	
-	bfun0 <- bfun # save it for test.fit
-	bfun10 <- attr(bfun, "bfun10")
-	for(j in 1:ncol(bfun10)){bfun10[,j] <- S$B$M[j] + bfun10[,j]*S$B$S[j]}
-	bfun10 <- bfun10%*%qr.solve(qr(S$B$rot))
-	for(j in 1:ncol(bfun10)){bfun10[,j] <- S$B$m[j] + bfun10[,j]*S$B$s[j]}
-	attr(bfun, "bfun10") <- bfun10
   
 	attr(mf, "assign") <- S$X$assign
 	attr(mf, "stats") <- S
-	attr(mf, "all.vars") <- V
 	attr(mf, "CDFs") <- CDFs
-	attr(mf, "bfun0") <- bfun0
-	attr(mf, "bfun") <- bfun
+	attr(mf, "all.vars") <- V
+	attr(mf, "all.vars.unscaled") <- U
+	attr(mf, "Q0") <- covar$Q0
+	attr(mf, "internal.bfun") <- bfun
+	attr(mf, "bfun") <- A$bfun
 	attr(mf, "theta") <- fit$coefficients
 	attr(mf, "type") <- type
 
@@ -446,16 +488,17 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, type, s){
 	fit <- list(coefficients = out$theta, call = cl, 
 		converged = fit$converged, n.it = fit$n.it,
 		obj.function = fit$obj.function,  
-		covar = out$covar, mf = mf, s = s, CDF = fit$CDF.y)
-	jnames <- c(sapply(attr(bfun, "coef.names"), 
+		covar = out$covar, mf = mf, s = s)
+	jnames <- c(sapply(attr(A$bfun, "coef.names"), 
 		function(x,y){paste(x,y, sep = ":")}, y = S$X$coef.names))
 	dimnames(fit$covar) <- list(jnames, jnames)
 	dimnames(fit$coefficients) <- dimnames(fit$s) <- list(S$X$coef.names, S$B$coef.names)
 
 
-	# PDF
+	# CDF and PDF, precision ~ 1e-6
 
-	b1 <- apply_bfun(bfun, fit$CDF, "b1fun", convert = TRUE)
+	fit$CDF <- p.bisec(fit$coef,U$y,U$X,A$bfun)
+	b1 <- apply_bfun(A$bfun, fit$CDF, "b1fun")
 	fit$PDF <- 1/c(rowSums((U$X%*%fit$coef)*b1))
 	fit$PDF[attr(fit$CDF, "out")] <- 0
 	attributes(fit$CDF) <- attributes(fit$PDF) <- list(names = rownames(mf))
@@ -480,136 +523,121 @@ print.iqr <- function (x, digits = max(3L, getOption("digits") - 3L), ...){
 }
 
 
-apply_bfun <- function(bfun, p, fun, convert = FALSE){
 
-	k <- attr(bfun, "k")
-	if(class(bfun) == "slp.basis"){
 
-		# for "bfun" (only used in p.bisec), the powers of p must be computed
-		# otherwise, p is already a matrix (1,p,p^2,p^3,...)
-
-		intB <- attr(bfun, "intB")
-		if(fun == "bfun"){
-			pp <- cbind(1,p)
-			if(k > 1){for(j in 2:k){pp <- cbind(pp, pp[,j]*p)}}
-			out <- pp%*%bfun$a
-			if(!intB){out <- out[,-1, drop = FALSE]}
-			attr(out, "p^") <- pp
-			return(out)
-		}
-		p <- attr(p, "p^")
-		if(fun == "b1fun"){out <- cbind(0,p[,1:k, drop = FALSE]%*%bfun$a1[-1,-1, drop = FALSE])}
-		else if(fun == "Bfun"){out <- p[,2:(k + 2)]%*%bfun$A}
-		else{out <- p[,3:(k + 3)]%*%bfun$AA}
-		if(!intB){out <- out[,-1, drop = FALSE]}
-		return(out)
-	}
-	else{
-		out <- matrix(NA_real_)
-		n <- length(p)
-		length(out) <- n*k
-		dim(out) <- c(n,k)
-		if(fun == "b1fun"){for(j in 1:k){out[,j] <- bfun[[j]]$bfun(p, deriv = 1)}}
-		else{for(j in 1:k){out[,j] <- bfun[[j]][[fun]](p)}}
-		if(convert){
-			ap <- attributes(bfun)
-			if(fun == "bfun"){phi <- 1}
-			else if(fun == "b1fun"){phi <- 0}
-			else if(fun == "Bfun"){phi <- p}
-			else{phi <- 0.5*p^2}
-
-			for(j in 1:k){out[,j] <- ap$M[j]*phi + out[,j]*ap$S[j]}
-			out <- out%*%qr.solve(qr(ap$rot))
-			for(j in 1:k){out[,j] <- ap$m[j]*phi + out[,j]*ap$s[j]}
-		}
-		return(out)
-	}
+# Compute either bfun or b1fun. Note that I never need them both in predictions!
+apply_bfun <- function(bfun, p, fun = c("bfun", "b1fun")){
+  
+  k <- attr(bfun, "k")
+  n <- length(p)
+  
+  if(class(bfun) == "slp.basis"){
+    pp <- matrix(, n, k + 1)
+    pp[,1] <- 1; pp[,2] <- p
+    if(k > 1){for(j in 2:k){pp[,j + 1] <- pp[,j]*p}}
+    if(fun == "bfun"){out <- tcrossprod(pp, t(bfun$a))}
+    else{out <- cbind(0, tcrossprod(pp[,1:k, drop = FALSE], t(bfun$a1[-1,-1, drop = FALSE])))}
+    if(!attr(bfun, "intB")){out <- out[,-1, drop = FALSE]}
+  }
+  else{
+    out <- matrix(,n,k)
+    if(fun == "bfun"){for(j in 1:k){out[,j] <- bfun[[j]](p)}}
+    else{for(j in 1:k){out[,j] <- bfun[[j]](p, deriv = 1)}}
+  }
+  out
 }
 
 
-p.bisec <- function(theta, y,X, bfun, n.it = 17, convert = FALSE){
 
-	p10 <- attr(bfun, "p10")
-	bfun10 <- attr(bfun, "bfun10")%*%t(theta)
-	n <- length(y); q <- ncol(X)
-	m <- rep.int(512,n)
-	for(i in 2:10){
-		delta.m <- y - .rowSums(X*bfun10[m,, drop = FALSE], n, q)
-		m <- m + sign(delta.m)*(2^(10 - i))
+# Bisection for external use. Precision about 1e-6
+p.bisec <- function(theta, y,X, bfun, n.it = 20){
+  
+  n <- length(y); k <- ncol(theta)
+  bp <- attr(bfun, "bp")
+  p <- attr(bfun, "p")
+  Xtheta <- tcrossprod(X, t(theta))
+  
+  eta <- tcrossprod(Xtheta,bp[512,, drop = FALSE])
+  m <- as.integer(512 + sign(y - eta)*256)
+  
+  for(i in 3:10){
+    eta <- .rowSums(Xtheta*bp[m,, drop = FALSE], n, k)
+    m <- m + as.integer(sign(y - eta)*(2^(10 - i)))
+  }
+  m <- p[m]
+  
+  for(i in 11:n.it){
+    bp <- apply_bfun(bfun, m, "bfun")
+    delta.m <- y - .rowSums(Xtheta*bp, n,k)
+    m <- m + sign(delta.m)/2^i
+  }
+  
+  m <- c(m)
+  
+  out.l <- which(m == 1/2^n.it)
+  out.r <- which(m == 1 - 1/2^n.it)
+  m[out.l] <- 0; m[out.r] <- 1
+  attr(m, "out") <- c(out.l, out.r)
+  attr(m, "out.r") <- out.r
+  
+  m
+}
+
+# for external use, only returns b(p)
+make.bfun <- function(p,x){
+  n <- length(x)
+  x1 <- x[1:(n-1)]
+  x2 <- x[2:n]
+  if(all(x1 < x2) | all(x1 > x2)){method <- "hyman"}
+  else{method <- "fmm"}
+  splinefun(p,x, method = method)
+}
+
+num.fun <- function(dx,fx, op = c("int", "der")){
+  n <- length(dx) + 1
+  k <- ncol(fx)
+  fL <- fx[1:(n-1),, drop = FALSE]
+  fR <- fx[2:n,, drop = FALSE]
+  
+  if(op == "int"){out <- apply(rbind(0, 0.5*dx*(fL + fR)),2,cumsum)}
+  else{
+    out <- (fR - fL)/dx
+    out <- rbind(out[1,],out)
+  }
+  out
+}
+
+
+
+
+
+
+# Bisection for internal use. Precision about 0.001
+p.bisec.internal <- function(theta, y,X,bp){
+
+	n <- length(y); k <- ncol(theta)
+
+	Xtheta <- tcrossprod(X, t(theta))
+	eta <- tcrossprod(Xtheta,bp[512,, drop = FALSE])
+	m <- as.integer(512 + sign(y - eta)*256)
+
+	for(i in 3:10){
+		eta <- .rowSums(Xtheta*bp[m,, drop = FALSE], n, k)
+		m <- m + as.integer(sign(y - eta)*(2^(10 - i)))
 	}
-	m <- p10[m]
-	for(i in 11:n.it){
-		bp <- apply_bfun(bfun, m, "bfun", convert = convert)
-		delta.m <- y - .rowSums(X*(bp%*%t(theta)), n,q)
-		m <- m + sign(delta.m)/2^i
-	}
-	m <- c(m)
-	out.l <- which(m == 1/2^n.it)
-	out.r <- which(m == 1 - 1/2^n.it)
-	m[out.l] <- 0; m[out.r] <- 1
+
+	out.l <- which(m == 1)
+	out.r <- which(m == 1023)
+
 	attr(m, "out") <- c(out.l, out.r)
 	attr(m, "out.r") <- out.r
 
-	bp <- apply_bfun(bfun, m, "bfun", convert = convert)
-	attr(m, "bfun") <- bp[,, drop = FALSE]
-
-	if(class(bfun) == "slp.basis"){
-		k <- attr(bfun, "k")
-		pp <- attr(bp, "p^")
-		pp <- cbind(pp, pp[,k + 1]*m, pp[,k + 1]*m^2)
-		attr(m, "p^") <- pp
-	}
 	m
 }
 
 
-make.bfun <- function(p,x, type){
-	bfun <- splinefun(p,x, method = "fmm")
-	Bfun <- numint(bfun)
-	if(type != "iqr"){
-		BBfun <- numint(Bfun)
-		BB1 <- BBfun(1)
-	}
-	else{
-		BBfun <- NULL
-		BB1 <- integrate(Bfun, lower = 0, upper = 1, subdivisions = 10000)$value
-	}
-	list(bfun = bfun, Bfun = Bfun, BBfun = BBfun, BB1 = BB1)
-}
 
-numint <- function(f){
 
-	n <- 1000
-	delta <- 1/n
-	ul <- c(0,(0.1)^(6:4), 1/n)
-	ur <- sort(1 - ul)
-	u <- seq.int(delta, 1 - delta, length.out = n - 1)
-
-	ff <- f(u)
-	FF <- (ff[1:(n - 2)] + ff[2:(n - 1)])/2*delta
-
-	# left tail
-
-	FF_l <- 0
-	for(j in 1:(length(ul) - 1)){
-		FF_l[j + 1] <- integrate(f, lower = ul[j], upper = ul[j + 1], 
-		subdivisions = 1000)$value
-	}
-
-	# right tail
-
-	FF_r <- NULL
-	for(j in 1:(length(ur) - 1)){
-		FF_r[j] <- integrate(f, lower = ur[j], upper = ur[j + 1], 
-		subdivisions = 1000)$value
-	}
-
-	## end
-
-	u <- c(ul,u[-1],ur[-1])
-	FF <- cumsum(c(FF_l, FF, FF_r))
-	splinefun(u, FF, method = "fmm")
-}
 
 #' @export
 plf <- function(p, knots){ # basis of piecewise linear function
@@ -649,7 +677,6 @@ slp.basis <- function(k, intercept){ # shifted Legendre polynomials basis
 	# a1 = first derivatives to be applied to P' = (0,1, p, p^2, ...)
 	# A = first integral to be applied to PP = (p, p^2, p^3, p^4, ...)
 	# AA = second integral to be applied to PPP = (p^2, p^3, p^4, p^5, ...)
-
 
 	a1 <- A <- AA <- matrix(,K,K)
 	for(j in 0:k){
@@ -704,36 +731,43 @@ is.slp <- function(f){
 
 iobjfun <- function(theta, y,X,weights, bfun, p.star){
 	s <- NULL
-	B <- apply_bfun(bfun, p.star, "Bfun")
+	B <- bfun$Bp[p.star,, drop = FALSE]
+	py <- bfun$p[p.star]
 	for(j in 1:ncol(B)){s <- cbind(s, bfun$BB1[1,j] - B[,j])}
-	sum(y*weights*(p.star - 0.5)) + sum(((X*weights)%*%theta)*s)
+	sum(y*weights*(py - 0.5)) + sum(((X*weights)%*%theta)*s)
 }
 
-iqr.ee <- function(theta, y,z,d,X,weights, bfun, 
+iqr.ee <- function(theta, y,z,d,X,Xw, bfun, 
 	p.star.y, p.star.z, J = TRUE, G, i = FALSE){
 
 	k <- ncol(theta)
+	n <- length(y)
 	BB1 <- bfun$BB1
 	if(missing(G)){
-		B <- apply_bfun(bfun, p.star.y, "Bfun")
+		B <- bfun$Bp[p.star.y,, drop = FALSE]
 		S1 <- BB1 - B
-		if(!i){g <- c(t(X*weights)%*%S1)}
+		if(!i){g <- c(crossprod(Xw,S1))}
 		else{g <- NULL; for(h in 1:k){g <- cbind(g,X*S1[,h])}}
 	}
 	else{B <- G$B; g <- G$g}
  
 	if(J){
-		b <- attr(p.star.y, "bfun")
-		b1 <- apply_bfun(bfun, p.star.y, "b1fun")
-		A1 <- 1/c(rowSums((X%*%theta)*b1))
-		A1 <- pmax(0,A1)
+		b1 <- bfun$b1p[p.star.y,, drop = FALSE]
+		bij <- bfun$bpij[p.star.y,, drop = FALSE]
+
+		A1 <- 1/c(.rowSums(tcrossprod(X, t(theta))*b1, n,k))
+		A1 <- pmax0(A1)
 		A1[attr(p.star.y, "out")] <- 0
-		Xw <- X*weights*A1
+		Xw <- Xw*A1
 
 		J <- NULL
+		count <- 0
 		for(i1 in 1:k){
 			h.temp <- NULL
-			for(i2 in 1:k){h.temp <- cbind(h.temp, t(Xw)%*%(X*(b[,i2]*b[,i1])))}
+			for(i2 in 1:k){
+				count <- count + 1
+				h.temp <- cbind(h.temp, crossprod(Xw, X*bij[,count]))
+			}
 			J <- rbind(J, h.temp)
 		}
 	}
@@ -741,89 +775,99 @@ iqr.ee <- function(theta, y,z,d,X,weights, bfun,
 	list(g = g, J = J, B = B)
 }
 
-ciqr.ee <- function(theta, y,z,d,X,weights, bfun, 
+ciqr.ee <- function(theta, y,z,d,X,Xw, bfun, 
 	p.star.y, p.star.z, J = TRUE, G, i = FALSE){
 
 	k <- ncol(theta)
+	n <- length(y)
 	BB1 <- bfun$BB1
 
 	if(missing(G)){
-		B <- apply_bfun(bfun, p.star.y, "Bfun")
-		BB <- apply_bfun(bfun, p.star.y, "BBfun")
-		a <- (1 - d)/(1 - p.star.y); a[attr(p.star.y, "out.r")] <- 0
+		B <- bfun$Bp[p.star.y,, drop = FALSE]
+		BB <- bfun$BBp[p.star.y,, drop = FALSE]
+		py <- bfun$p[p.star.y]
+
+		a <- (1 - d)/(1 - py); a[attr(p.star.y, "out.r")] <- 0
 		S1 <- a*(BB - BB1)
 		a <- d; a[attr(p.star.y, "out.r")] <- 1
 		S1 <- BB1 - a*B + S1
-		if(!i){g <- c(t(X*weights)%*%S1)}
+
+		if(!i){g <- c(crossprod(Xw,S1))}
 		else{g <- NULL; for(h in 1:k){g <- cbind(g,X*S1[,h])}}
 	}
-	else{B <- G$B; BB <- G$BB; g <- G$g}
+	else{B <- G$B; BB <- G$BB; g <- G$g; py <- G$py}
 
 	if(J){
-		b1 <- apply_bfun(bfun, p.star.y, "b1fun")
-		b <- attr(p.star.y, "bfun")
-		A1 <- 1/c(rowSums((X%*%theta)*b1))
-		A1 <- pmax(0,A1)
+		b <- bfun$bp[p.star.y,, drop = FALSE]
+		b1 <- bfun$b1p[p.star.y,, drop = FALSE]
+
+		A1 <- 1/c(.rowSums(tcrossprod(X, t(theta))*b1, n,k))
+		A1 <- pmax0(A1)
 		A1[attr(p.star.y, "out")] <- 0
-		a <- 1 - p.star.y
+		a <- 1 - py
 		a[attr(p.star.y, "out.r")] <- 1 
-		# the vale 1 is arbitrary, only to avoid NAs (will be canceled by the zeroes in A1)
+		# the value 1 is arbitrary, only to avoid NAs (will be canceled by the zeroes in A1)
 		A2 <- d*b + (1 - d)/(a^2)*(BB1 - B*a - BB)
-		Xw <- X*weights*A1
+		Xw <- Xw*A1
 
 		J <- NULL
 		for(i1 in 1:k){
 			h.temp <- NULL
-			for(i2 in 1:k){h.temp <- cbind(h.temp, t(Xw)%*%(X*(b[,i2]*A2[,i1])))}
+			for(i2 in 1:k){h.temp <- cbind(h.temp, crossprod(Xw, X*(b[,i2]*A2[,i1])))}
 			J <- rbind(J, h.temp)
 		}
 	}
-	list(g = g, J = J, B = B, BB = BB)
+	list(g = g, J = J, B = B, BB = BB, py = py)
 }
 
 
 
 
-ctiqr.ee <- function(theta, y,z,d,X,weights, bfun, 
+ctiqr.ee <- function(theta, y,z,d,X,Xw, bfun, 
 	p.star.y, p.star.z, J = TRUE, G, i = FALSE){
 
 	k <- ncol(theta)
+	n <- length(y)
 	BB1 <- bfun$BB1
 	if(missing(G)){
-		B.y <- apply_bfun(bfun, p.star.y, "Bfun")	
-		BB.y <- apply_bfun(bfun, p.star.y, "BBfun")
-		B.z <- apply_bfun(bfun, p.star.z, "Bfun")
-		BB.z <- apply_bfun(bfun, p.star.z, "BBfun")
-
+		B.y <- bfun$Bp[p.star.y,, drop = FALSE]	
+		BB.y <- bfun$BBp[p.star.y,, drop = FALSE]
+		B.z <- bfun$Bp[p.star.z,, drop = FALSE]
+		BB.z <- bfun$BBp[p.star.z,, drop = FALSE]
+		py <- bfun$p[p.star.y]
+		pz <- bfun$p[p.star.z]
+	
 		out.y <- attr(p.star.y, "out.r")
 		out.z <- attr(p.star.z, "out.r")
 		a <- d
 
-		S1.y <- (1 - d)/(1 - p.star.y)*(BB.y - BB1)
-		S1.z <- 1/(1 - p.star.z)*(BB.z - BB1)
+		S1.y <- (1 - d)/(1 - py)*(BB.y - BB1)
+		S1.z <- 1/(1 - pz)*(BB.z - BB1)
 		S1.y[out.y,] <- 0; a[out.y] <- 1
 		S1.y[out.z,] <- S1.z[out.z,] <- a[out.z] <- 0
 
 		S1 <- -a*B.y + S1.y - S1.z
-		if(!i){g <- c(t(X*weights)%*%S1)}
+		if(!i){g <- c(crossprod(Xw,S1))}
 		else{g <- NULL; for(h in 1:k){g <- cbind(g,X*S1[,h])}}
 	}
-	else{B.y <- G$B.y; BB.y <- G$BB.y; B.z <- G$B.z; BB.z <- G$BB.z; g <- G$g}
+	else{B.y <- G$B.y; BB.y <- G$BB.y; B.z <- G$B.z; BB.z <- G$BB.z; g <- G$g; py <- G$py; pz <- G$pz}
 
 	if(J){
-		b1.y <- apply_bfun(bfun, p.star.y, "b1fun")
-		b.y <- attr(p.star.y, "bfun")
-		b1.z <- apply_bfun(bfun, p.star.z, "b1fun")
-		b.z <- attr(p.star.z, "bfun")
+		b.y <- bfun$bp[p.star.y,, drop = FALSE]
+		b1.y <- bfun$b1p[p.star.y,, drop = FALSE]
+		b.z <- bfun$bp[p.star.z,, drop = FALSE]
+		b1.z <- bfun$b1p[p.star.z,, drop = FALSE]
 
-		A1.y <- 1/c(rowSums((X%*%theta)*b1.y))
-		A1.z <- 1/c(rowSums((X%*%theta)*b1.z))
-		A1.y <- pmax(A1.y,0)
-		A1.z <- pmax(A1.z,0)
+		Xtheta <- tcrossprod(X, t(theta))
+
+		A1.y <- 1/c(.rowSums(Xtheta*b1.y, n,k))
+		A1.z <- 1/c(.rowSums(Xtheta*b1.z, n,k))
+		A1.y <- pmax0(A1.y)
+		A1.z <- pmax0(A1.z)
 		A1.y[attr(p.star.y, "out")] <- 0
 		A1.z[attr(p.star.z, "out")] <- 0
 
-		ay <- 1 - p.star.y; az <- 1 - p.star.z
+		ay <- 1 - py; az <- 1 - pz
 		ay[attr(p.star.y, "out.r")] <- az[attr(p.star.z, "out.r")] <- 1 
 		# the value 1 is arbitrary, only to avoid NAs (will be canceled by the zeroes in A1.y and A1.z)
 
@@ -831,35 +875,37 @@ ctiqr.ee <- function(theta, y,z,d,X,weights, bfun,
 		A2.z <- 1/(az^2)*(B.z*az + BB.z - BB1)
 		H.y <- A2.y*A1.y 
 		H.z <- A2.z*A1.z
-		Xw <- X*weights
 
 		J <- NULL
 		for(i1 in 1:k){
 			h.temp <- NULL
-			for(i2 in 1:k){h.temp <- cbind(h.temp, t(Xw)%*%(X*(b.y[,i2]*H.y[,i1] + b.z[,i2]*H.z[,i1])))}
+			for(i2 in 1:k){h.temp <- cbind(h.temp, crossprod(Xw, X*(b.y[,i2]*H.y[,i1] + b.z[,i2]*H.z[,i1])))}
 			J <- rbind(J, h.temp)
 		}
 	}
-	list(g = g, J = J, B.y = B.y, BB.y = BB.y, B.z = B.z, BB.z = BB.z)
+	list(g = g, J = J, B.y = B.y, BB.y = BB.y, B.z = B.z, BB.z = BB.z, py = py, pz = pz)
 }
 
 
 
 
-start.theta <- function(y,z,d, x, weights, bfun, df, xx, yy, zz, s){
+start.theta <- function(y,z,d, x, weights, bfun, df, yy, zz, s){
 
 	if(is.null(yy)){p.star <- (rank(y) - 0.5)/length(y)}
 	else{
 	  m0 <- suppressWarnings(pch:::pch.fit(z = zz, y = yy, d = d, 
-		x = cbind(1,xx), w = weights, breaks = df))
+		x = cbind(1,x), w = weights, breaks = df))
 	  p.star <- 1 - pch:::predF.pch(m0)[,3]
 	}
 
-	b.star <- apply_bfun(bfun, p.star, "bfun")
+	pfun <- attr(bfun, "pfun")
+	p.star <- pfun(p.star)  
+	b.star <- bfun$bp[match(p.star, bfun$p),]
 	X <- model.matrix(~ -1 + x:b.star)
 	X <- X[, c(s) == 1, drop = FALSE]
 	start.ok <- FALSE
 	while(!start.ok){
+
 		m <- lm.wfit(X, y, weights)
 		res <- m$residuals
 		start.ok <- all(w <- (abs(res)/sd(res) < 4))
@@ -879,7 +925,7 @@ start.theta <- function(y,z,d, x, weights, bfun, df, xx, yy, zz, s){
 # Note: if s has some zeroes, the covariance matrix Q will contain some zero-columns and rows,
 # while the gradient and jacobian will just omit the parameters that are not estimated
 
-cov.theta <- function(theta, y,z,d,X,weights, bfun, 
+cov.theta <- function(theta, y,z,d,X,Xw, weights, bfun, 
 		p.star.y, p.star.z, type, s){
 
 	if(type == "iqr"){ee <- iqr.ee}
@@ -887,78 +933,29 @@ cov.theta <- function(theta, y,z,d,X,weights, bfun,
 	else{ee <- ctiqr.ee}
 	s <- c(s == 1)
 	
-	G.i <- ee(theta, y,z,d,X,weights, bfun, p.star.y, p.star.z, J = TRUE, i = TRUE)
+	G.i <- ee(theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = TRUE, i = TRUE)
 	s.i <- G.i$g[,s, drop = FALSE]
 	G <- G.i$J[s,s, drop = FALSE]
 
 	Omega <- chol2inv(chol(t(s.i*weights)%*%s.i))
-	Q <- t(G)%*%Omega%*%G
-	Q <- chol2inv(chol(Q))
+	Q0 <- t(G)%*%Omega%*%G
+	Q <- chol2inv(chol(Q0))
 	U <- matrix(0, length(s), length(s))
 	U[s,s] <- Q
 
-	list(Q = U, jacobian = G, ee = colSums(s.i*weights), Omega = Omega, s.i = s.i)
+	list(Q = U, Q0 = Q0, jacobian = G, ee = colSums(s.i*weights), Omega = Omega, s.i = s.i)
 }
 
 
 
-# Observed = n. of CDF.y in each interval, no matter if type = "iqr" or not.
-# If type = "iqr", expected = n/k.
-# Otherwise, "expected" = n. of cases in which phi_t = km(CDF.z, CDF.y, d)$F(CDF.y) 
-# falls in the same interval. If phi_t = U(0,1), and a value of CDF.y
-# is in a given interval, then its phi_t should also be in the same interval.
-# I quote "expected" because both observed and expected are estimated quantities in this case.
-
-chitest <- function(y, w, k = 10, type, Fy){
-  
-	if(k < 3){stop("k >= 3 is required")}
-	n <- length(y)
-	u <- seq(0,1,length = k + 1)
-	u[1] <- -Inf # to include the zeroes
-  
-	# expected
-  
-	if(type == "iqr"){p <- 1/k; e <- n/k}
-	else{
-		p <- NULL
-		for(j in 1:k){
-			if(is.null(w)){p[j] <- mean(Fy > u[j] & Fy <= u[j + 1])}
-			else{p[j] <- weighted.mean(Fy > u[j] & Fy <= u[j + 1], w)}
-		}
-		e <- p*n
-	}
-	v <- n*p*(1 - p)
-
-	# observed
-  
-	o <- NULL
-	for(j in 1:k){
-		if(is.null(w)){o[j] <- mean(y > u[j] & y <= u[j + 1])}
-		else{o[j] <- weighted.mean(y > u[j] & y <= u[j + 1], w)}
-	}
-	if(type != "iqr"){v <- v + n*o*(1 - o)}
-	o <- o*n
-  
-	# finish
-
-	chi2 <- sum(((o - e)^2)/v)
-	rbind(c('chi^2' = chi2, df = k - 2, 
-	'p-value' = pchisq(chi2, df = k - 2, lower.tail = FALSE)))
-}
 
 #' @export
-summary.iqr <- function(object, p, cov = FALSE, k = 10, ...){
+summary.iqr <- function(object, p, cov = FALSE, ...){
 
 	if(missing(p)){
 		mf <- object$mf
 		theta <- object$coefficients
-		CDF.y <- attr(mf, "CDFs")$CDF.y
 		w <- attr(mf, "all.vars")$weights
-		type <- attr(mf, "type")
-		if(type != "iqr"){
-			km <- attr(attr(mf, "CDFs"), "km")
-			Fy <- km$F(CDF.y)
-		}
   
 		u <- sqrt(diag(object$covar))
 		u <- matrix(u, q <- nrow(theta), r <- ncol(theta))
@@ -968,13 +965,7 @@ summary.iqr <- function(object, p, cov = FALSE, k = 10, ...){
 			coefficients = theta, se = u, 
 			test.x = test$test.x, test.p = test$test.p)
 
-		out$obj.function <- object$obj.function
-		testfit <- NULL; k <- unique(round(k))
-
-		for(j in k){testfit <- rbind(testfit, chitest(CDF.y, w, j, type, Fy))}
-		out$test.fit <- testfit
-		rownames(out$test.fit) <- paste("k =", k)
-		
+		out$obj.function <- object$obj.function		
 		out$n <- nrow(object$mf)
 		out$free.par <- sum(theta != 0)
 	}
@@ -1037,10 +1028,6 @@ print.summary.iqr <- function(x, digits = max(3L, getOption("digits") - 3L), ...
 			cat("\n")
 			cat("Minimized loss function:", x$obj.function)
 		}
-		cat("\n\n")
-		cat("Chi-squared test for goodness-of-fit:\n")
-		printCoefmat(x$test.fit, digits = digits, signif.stars = TRUE, tst.ind = 1, 
-			signif.legend = FALSE, P.values = TRUE, has.Pvalue = TRUE)
 	}
 
 	else{
@@ -1075,7 +1062,7 @@ extract.p <- function(model,p, cov = FALSE){
 	k <- ncol(theta)
 
 	bfun <- attr(model$mf, "bfun")
-	pred.p <- apply_bfun(bfun, p, "bfun", convert = TRUE)
+	pred.p <- apply_bfun(bfun, p, "bfun")
 	beta <- c(pred.p%*%t(theta))
 
 	cov.beta <- matrix(NA,q,q)
@@ -1097,7 +1084,7 @@ extract.p <- function(model,p, cov = FALSE){
 }
 
 #' @export
-plot.iqr <- function(x, conf.int = TRUE, which = NULL, ask = TRUE, ...){
+plot.iqr <- function(x, conf.int = TRUE, polygon = TRUE, which = NULL, ask = TRUE, ...){
 
 	plot.iqr.int <- function(p,u,j,conf.int,L){
 		beta <- u[[j]]$beta
@@ -1107,10 +1094,18 @@ plot.iqr <- function(x, conf.int = TRUE, which = NULL, ask = TRUE, ...){
 			L$ylim <- c(y1,y2)
 		}
 		plot(p, u[[j]]$beta, xlab = L$xlab, ylab = L$ylab, main = L$labels[j], 
-		type = "l", lwd = L$lwd, xlim = L$xlim, ylim = L$ylim, col = L$col)
+		  type = "l", lwd = L$lwd, xlim = L$xlim, ylim = L$ylim, col = L$col, axes = L$axes, 
+		  frame.plot = L$frame.plot, cex.lab = L$cex.lab, cex.axis = L$cex.axis)
 		if(conf.int){
-		  points(p, u[[j]]$low, lty = 2, lwd = L$lwd, type = "l", col = L$col)
-		  points(p, u[[j]]$up, lty = 2, lwd = L$lwd, type = "l", col = L$col)
+		  if(polygon){
+		    yy <- c(u[[j]]$low, tail(u[[j]]$up, 1), rev(u[[j]]$up), u[[j]]$low[1])
+		    xx <- c(p, tail(p, 1), rev(p), p[1])
+		    polygon(xx, yy, col = adjustcolor(L$col, alpha.f = 0.25), border = NA)
+		  }
+		  else{
+		    points(p, u[[j]]$low, lty = 2, lwd = L$lwd, type = "l", col = L$col)
+		    points(p, u[[j]]$up, lty = 2, lwd = L$lwd, type = "l", col = L$col)
+		  }
 		}
 	}
 
@@ -1120,6 +1115,10 @@ plot.iqr <- function(x, conf.int = TRUE, which = NULL, ask = TRUE, ...){
 	if(is.null(L$col)){L$col <- "black"}
 	if(is.null(L$xlab)){L$xlab <- "p"}
 	if(is.null(L$ylab)){L$ylab <- "beta(p)"}
+	if(is.null(L$cex.lab)){L$cex.lab <- 1}
+	if(is.null(L$cex.axis)){L$cex.axis <- 1}
+	if(is.null(L$axes)){L$axes <- TRUE}
+	if(is.null(L$frame.plot)){L$frame.plot <- TRUE}
 	L$labels <- rownames(x$coefficients)
 	q <- length(L$labels)
 	L$labels <- c(L$labels, "qqplot")
@@ -1137,8 +1136,12 @@ plot.iqr <- function(x, conf.int = TRUE, which = NULL, ask = TRUE, ...){
 			pick <- menu(L$labels, title = "Make a plot selection (or 0 to exit):\n")
 			if(pick > 0 && pick <= q){plot.iqr.int(p,u,pick,conf.int,L)}
 			else if(pick == q + 1){
-				n <- length(FF <- sort(attr(x$mf, "CDFs")$CDF.t))
-				plot((1:n)/(n + 1), FF, type = "l", lwd = 2, xlab = "U(0,1) quantiles", ylab = "fitted CDF quantiles")
+        KM <- attr(attr(x$mf, "CDFs"), "km")
+				plot(KM$time, KM$cdf, pch = 20, cex = 0.5, 
+             xlim = c(0,1), ylim = c(0,1), 
+             ylab = "U(0,1) quantiles", xlab = "fitted CDF quantiles")
+        points(KM$time, KM$low, pch = ".")
+				points(KM$time, KM$up, pch = ".")
 				abline(0,1)
 			}
 		}
@@ -1151,7 +1154,6 @@ plot.iqr <- function(x, conf.int = TRUE, which = NULL, ask = TRUE, ...){
 # se: ignored for type = "CDF"
 # x: only for type = "CDF" or type = "fitted"
 # y: only for type = "CDF"
-
 
 #' @export
 predict.iqr <- function(object, type = c("beta", "CDF", "QF", "sim"), newdata, p, se = TRUE, ...){
@@ -1166,7 +1168,7 @@ predict.iqr <- function(object, type = c("beta", "CDF", "QF", "sim"), newdata, p
 	mf <- object$mf
 	mt <- terms(mf)
 	miss <- attr(mf, "na.action")
-	fittype <- attr(mf, "type")
+	fittype <- attr(attr(mf, "type"), "fittype")
 	nomiss <- (if(is.null(miss)) 1:nrow(mf) else (1:(nrow(mf) + length(miss)))[-miss])
 	xlev <- .getXlevels(mt, mf)
 
@@ -1210,8 +1212,8 @@ predict.iqr <- function(object, type = c("beta", "CDF", "QF", "sim"), newdata, p
 	if(type == "CDF"){
 		bfun <- attr(object$mf, "bfun")
 		y <- cbind(model.response(mf))[,1 + (fittype == "ctiqr")]
-		Fy <- p.bisec(object$coefficients, y,x, bfun, convert = TRUE)
-		b1 <- apply_bfun(bfun, Fy, "b1fun", convert = TRUE)
+		Fy <- p.bisec(object$coefficients, y,x, bfun)
+		b1 <- apply_bfun(bfun, Fy, "b1fun")
 		fy <- 1/c(rowSums((x%*%object$coefficients)*b1))
 		fy[attr(Fy, "out")] <- 0
 		if(any(fy < 0)){warning("some PDF values are negative (quantile crossing)")}
@@ -1250,13 +1252,24 @@ predict.iqr <- function(object, type = c("beta", "CDF", "QF", "sim"), newdata, p
 	}	
 	else{
 		p <- runif(nrow(x))
-		beta <- apply_bfun(attr(object$mf, "bfun"), p, "bfun", convert = TRUE)%*%t(object$coefficients)
+		beta <- apply_bfun(attr(object$mf, "bfun"), p, "bfun")%*%t(object$coefficients)
 		y <- NULL; y[nomiss] <- rowSums(beta*x); y[miss] <- NA
 		return(y)
 	}
 }
 
-
+#' @export
+terms.iqr <- function(x, ...){attr(x$mf, "terms")}
+#' @export
+model.matrix.iqr <- function(object, ...){
+  mf <- object$mf
+  mt <- terms(mf)
+  model.matrix(mt, mf)
+}
+#' @export
+vcov.iqr <- function(object, ...){object$covar}
+#' @export
+nobs.iqr <- function(object, ...){nrow(object$mf)}
 
 
 pred.beta <- function(model, p, se = FALSE){
@@ -1280,7 +1293,7 @@ pred.beta <- function(model, p, se = FALSE){
 	}
 	else{
 		theta <- model$coefficients
-		beta <- apply_bfun(attr(model$mf, "bfun"), p, "bfun", convert = TRUE)%*%t(theta)
+		beta <- apply_bfun(attr(model$mf, "bfun"), p, "bfun")%*%t(theta)
 		out <- list()
 		for(j in 1:nrow(theta)){out[[j]] <- data.frame(p = p, beta = beta[,j])}
 		names(out) <- rownames(theta)
@@ -1290,79 +1303,125 @@ pred.beta <- function(model, p, se = FALSE){
 
 
 
-iqr.newton <- function(theta, y,z,d,X,weights, bfun, type, tol = 1e-5, maxit = 200, s){
+iqr.newton <- function(theta, y,z,d,X,Xw, bfun, s, type, tol, maxit, safeit, eps0){
+ 
+  if(type == "iqr"){ee <- iqr.ee}
+  else if(type == "ciqr"){ee <- ciqr.ee}
+  else{ee <- ctiqr.ee}
+  
+  q <- nrow(theta)
+  k <- ncol(theta)
+  s <- c(s == 1)
+  
+  p.star.y <- p.bisec.internal(theta, y,X, bfun$bp)
+  if(type == "ctiqr"){p.star.z <- p.bisec.internal(theta, z,X, bfun$bp)}
+  G <- ee(theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = FALSE)
+  
+  g <- G$g[s]
+  conv <- FALSE
+  eps <- eps0
+ 
+  # Preliminary safe iterations, only g is used
 
-	if(type == "iqr"){ee <- iqr.ee}
-	else if(type == "ciqr"){ee <- ciqr.ee}
-	else{ee <- ctiqr.ee}
+  for(i in 1:safeit){
 
-	q <- nrow(theta)
-	k <- ncol(theta)
-	s <- c(s == 1)
+    if(conv | max(abs(g)) < tol){break}
+    u <- rep.int(0, q*k)
+    u[s] <- g
+    delta <- matrix(u, q,k)	
+    delta[is.na(delta)] <- 0
+    cond <- FALSE
 
-	p.star.y <- p.bisec(theta, y,X, bfun)
-	p.star.z <- (if(type == "ctiqr") pmin(p.bisec(theta, z,X, bfun), p.star.y) else NULL)
-	G <- ee(theta, y,z,d,X,weights, bfun, p.star.y, p.star.z)
-	g <- G$g[s]
-	h <- G$J[s,s, drop = FALSE]
-	conv <- FALSE
-	eps <- .1
-	alg <- "nr"
+    while(!cond){
 
-	for(i in 1:maxit){
+      new.theta <- theta - delta*eps
+      if(max(abs(delta*eps)) < tol){conv <- TRUE; break}
+      p.star.y <- p.bisec.internal(new.theta, y,X, bfun$bp)
+      if(type == "ctiqr"){p.star.z <- p.bisec.internal(new.theta, z,X, bfun$bp)}
+      G1 <- ee(new.theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = FALSE)
+      g1 <- G1$g[s]
+      cond <- (sum(g1^2) < sum(g^2))
+      eps <- eps*0.5
+    }
 
-		if(conv | max(abs(g)) < tol){break}
+    if(conv){break}
+    g <- g1
+    G <- G1
+    theta <- new.theta
+    eps <- min(eps*2,0.1)
+  }
+  
+  
+  # Newton-Raphson
+  
+  alg <- "nr"
+  conv <- FALSE
+  eps <- 0.1
+  h <- ee(theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = TRUE, G = G)$J[s,s, drop = FALSE]
+  
+  for(i in 1:maxit){
+    
+    if(conv | max(abs(g)) < tol){break}
+    
+    ####
+    
+    if(type == "iqr"){
+      H1 <- try(chol(h), silent = TRUE)
+      err <- (class(H1) == "try-error")
+    }
+    else{
+      H1 <- qr(h)
+      r <- H1$rank
+      err <- (r != ncol(h))
+    }
+    if(!err){
+      if(alg == "gs"){alg <- "nr"; eps <- 1}
+      delta <- (if(type == "iqr") chol2inv(H1)%*%g else qr.solve(H1)%*%g)
+    }
+    else{
+      if(alg == "nr"){alg <- "gs"; eps <- 1}
+      delta <- g
+    }
 
-		####
-
-		if(type == "iqr"){
-			H1 <- try(chol(h), silent = TRUE)
-			err <- (class(H1) == "try-error")
-		}
-		else{
-			H1 <- qr(h)
-			r <- H1$rank
-			err <- (r != ncol(h))
-		}
-		if(!err){
-			if(alg == "gs"){alg <- "nr"; eps <- 1}
-			delta <- (if(type == "iqr") chol2inv(H1)%*%g else qr.solve(H1)%*%g)
-		}
-		else{
-			if(alg == "nr"){alg <- "gs"; eps <- 1}
-			delta <- g
-		}
-
-		u <- rep.int(0, q*k)
-		u[s] <- delta
-		delta <- matrix(u, q,k)	
-		delta[is.na(delta)] <- 0
-		cond <- FALSE
-		while(!cond){
-			new.theta <- theta - delta*eps
-			if(max(abs(delta*eps)) < tol){conv <- TRUE; break}
-			p.star.y <- p.bisec(new.theta, y,X, bfun)
-			if(type == "ctiqr"){p.star.z <- pmin(p.bisec(new.theta, z,X, bfun), p.star.y)}
-			G1 <- ee(new.theta, y,z,d,X,weights, bfun, p.star.y, p.star.z, J = FALSE)
-			g1 <- G1$g[s]
-			cond <- (sum(g1^2) < sum(g^2))
-			eps <- eps*0.5
-		}
-
-		if(conv){break}
-		g <- g1
-		G <- G1
-		theta <- new.theta
-		h <- ee(theta, y,z,d,X,weights, bfun, p.star.y, p.star.z, J = TRUE, G = G)$J[s,s, drop = FALSE]
-		if(i > 1){eps <- min(eps*10,1)}
-		else{eps <- min(eps*10,0.1)}
-	}
-
-	p.star.y <- p.bisec(theta, y,X, bfun)
-	p.star.z <- (if(type == "ctiqr") pmin(p.bisec(theta, z,X, bfun), p.star.y - 1e-6) else NULL)
-	list(coefficients = matrix(theta, q, k),
-		converged = (i < maxit), n.it = i, CDF.y = p.star.y, CDF.z = p.star.z,
-		ee = g, jacobian = h, rank = (alg == "nr")*sum(s))
+    u <- rep.int(0, q*k)
+    u[s] <- delta
+    delta <- matrix(u, q,k)	
+    delta[is.na(delta)] <- 0
+    cond <- FALSE
+    while(!cond){
+      new.theta <- theta - delta*eps
+      if(max(abs(delta*eps)) < tol){conv <- TRUE; break}
+      p.star.y <- p.bisec.internal(new.theta, y,X, bfun$bp)
+      if(type == "ctiqr"){p.star.z <- p.bisec.internal(new.theta, z,X, bfun$bp)}
+      G1 <- ee(new.theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = FALSE)
+      g1 <- G1$g[s]
+      cond <- (sum(g1^2) < sum(g^2))
+      eps <- eps*0.5
+    }
+    
+    if(conv){break}
+    g <- g1
+    G <- G1
+    theta <- new.theta
+    h <- ee(theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = TRUE, G = G)$J[s,s, drop = FALSE]
+    if(i > 1){eps <- min(eps*10,1)}
+    else{eps <- min(eps*10,0.1)}
+  }
+  
+  p.star.y <- p.bisec.internal(theta, y,X, bfun$bp)
+  py <- bfun$p[p.star.y]
+  if(type == "ctiqr"){
+    p.star.z <- p.bisec.internal(theta, z,X, bfun$bp)
+    pz <- bfun$p[p.star.z]
+    pz <- pmin(pz, py - 1e-8)
+    pz[p.star.z == 1] <- 0
+  }
+  else{p.star.z <- pz <- NULL}
+  
+  list(coefficients = matrix(theta, q, k),
+       converged = (i < maxit), n.it = i, 
+       p.star.y = p.star.y, p.star.z = p.star.z, py = py, pz = pz,
+       ee = g, jacobian = h, rank = (alg == "nr")*sum(s))
 }
 
 
@@ -1428,183 +1487,356 @@ iqr.waldtest <- function(obj){
 }
 
 
-# kaplan-meier estimator for ct data. Assumes 0 <= y <= 1
-# and returns an interpolating spline that computes the quantile function.
 
-km <- function(z,y,d,w, type = c("ciqr", "ctiqr")){
-
-	if(type == "ciqr"){m <- survfit(Surv(y,d) ~ 1, weights = w)}
-	else{m <- survfit(coxph(Surv(z,y,d) ~ 1), type = "kaplan-meier", weights = w)}
-	surv <- c(1,m$surv,0)
-	time <- c(0,m$time,1)
-	list(
-    		Q = splinefun(1 - surv, time, method = "hyman"),
-		F = splinefun(time, 1 - surv, method = "hyman")
-	)
-}
 
 
 
 
 #' @export
-test.fit <- function(object, R = 100){
-
-
-	# ks and cvm statistic for uniformity with (possibly) censored and truncated data
-	test.unif.ct <- function(z,y,d,w, type = c("iqr", "ciqr", "ctiqr")){
-		n <- length(y)
-		o <- order(y)
-		y <- y[o]
-		if(type != "iqr"){d <- d[o]}
-		if(type == "ctiqr"){z <- z[o]}
-		if(missing(w) || is.null(w)){w <- rep.int(1,n)}
-		else{w <- w[o]}
-		if(type == "iqr"){
-			W <- cumsum(w)
-			hat.Fy <- W/W[n]
-			Fy <- y # = punif(y)
-		}
-		else{
-			fit <- (if(type == "ctiqr") 
-				survfit(coxph(Surv(z, y, d) ~ 1), type = "kaplan-meier", weights = w)
-				else
-				survfit(Surv(y, d) ~ 1, weights = w)
-			)
-			hat.Fy <- 1 - fit$surv
-			Fy <- fit$time # = punif(fit$time)
-			n <- length(Fy)
-		}
-	
-		# kolmogorov - smirnov
-	
-		DD <- Fy - hat.Fy
-		ks <- max(abs(DD))
-	
-		# cramer - von mises
-
-		Fy <- c(0, Fy, 1)
-		hat.Fy <- c(0, hat.Fy, 1)
-		y <- c(0,y,1)
-		U <- (hat.Fy - Fy)^2
-		n <- n + 2
-		h <- y[2:n] - y[1:(n-1)]
-		b1 <- U[1:(n-1)]
-		b2 <- U[2:n]
-		A <- (b1 + b2)*h/2
-		cvm <- sum(A)
-
-		###
-	
-		c(ks = ks, cvm = cvm)	
-	}
-
-
-	# main function
-
-	s <- object$s
-	n <- N <- nrow(mf <- object$mf)
-	rho <- rep.int(1,n)
-	type <- attr(mf, "type")
-	bfun <- bfun.b <- attr(mf, "bfun0")
-	theta <- attr(mf, "theta")
-	maxit <- 10 + 2*sum(!is.na(theta))
-	V <- attr(mf, "all.vars")  
-	x <- V$X; y <- V$y; z <- V$z0; d <- V$d; w <- V$weights
-	CDFs <- attr(mf, "CDFs")
-	br <- max(15, min(25, ceiling(n/50)))
-
-
-	if(type == "ciqr"){mc <- suppressWarnings(pch:::pch.fit(y = y, 
-        d = 1 - d, x = cbind(1,x), w = w, breaks = br))}
-	else if(type == "ctiqr"){
-		z <- pmax(z, min(z[z != - Inf]))
-		mz <- suppressWarnings(pch:::pch.fit(z = -y, y = -z, 
-        d = rep.int(1,n), x = cbind(1,x), w = w, breaks = br))
-		mc <- suppressWarnings(pch:::pch.fit(z = z, y = y, 
-        d = 1 - d, x = cbind(1,x,z), w = w, breaks = br))
-		alphax <- 0
-		B <- 250
-		for(i in 1:B){
-			beta <- apply_bfun(bfun, runif(n), "bfun", convert = FALSE)%*%t(theta)
-			t.b <- rowSums(beta*x)
-			z.b <- -pch:::sim.pch(mz, method = "s")
-			c.b <- pch:::sim.pch(mc, x = cbind(1,x,z.b), method = "s")
-			y.b <- pmin(t.b, c.b)
-			alphax <- alphax + (y.b > z.b)
-		}
-
-		alphax <- pmax(alphax/B, 0.025) # pr(y > z | x), bounded to avoid too big N
-		N <- round(n/mean(alphax)) # n. of observations to sample in order to obtain n final obs.
-		rho <- 1/alphax # inclusion probability of each obs.
-	}
-
-	test0 <- test.unif.ct(z = CDFs$CDF.z, y = CDFs$CDF.y, d = d, w = w, type = type)
-	test <- matrix(,R,2)
-
-	for(b in 1:R){
-
-		# x
-
-		id <- sample.int(n, size = N, replace = TRUE, prob = rho)
-		xb <- x[id,, drop = FALSE]
-		wb <- w[id]
-
-		# t
-		beta <- apply_bfun(bfun, runif(N), "bfun", convert = FALSE)%*%t(theta)
-		tb <- yb <- rowSums(beta*xb)
-
-		# c,y,d
-		if(type == "ciqr"){
-			cb <- pch:::sim.pch(mc, x = cbind(1,xb), method = "s")
-			yb <- pmin(cb, tb)
-			db <- (tb <= cb)
-		}
-		if(type == "ctiqr"){
-			zb <- -pch:::sim.pch(mz, x = cbind(1,xb), method = "s")
-			cb <- pch:::sim.pch(mc, x = cbind(1,xb,zb), method = "s")
-			yb <- pmin(cb, tb)
-			db <- (tb <= cb)
-			nb <- length(obs <- which(yb > zb))
-			yb <- yb[obs]; zb <- zb[obs]; wb <- wb[obs]
-			db <- db[obs]; xb <- xb[obs,, drop = FALSE]
-			if(class(bfun) == "slp.basis"){
-				bfun.b$BB1 <- matrix(rep(bfun$BB1[1,], each = nb), nb)
-			}
-			else{
-			  bfun.b <- bfun[-length(bfun)]
-			  bfun.b$BB1 <- sapply(bfun.b, function(x){x$BB1})
-			  bfun.b$BB1 <- matrix(rep(bfun.b$BB1, each = nb), nb)
-			  attributes(bfun.b) <- attributes(bfun)
-			}
-		}
-
-		# fit the model
-
-		fit.b <- iqr.newton(theta = theta, y = yb, z = zb, d = db, X = xb, 
-			weights = wb, bfun = bfun.b, type = type, s = s, maxit = maxit, tol = 1e-5)
-		test[b,] <- test.unif.ct(z = fit.b$CDF.z, y = fit.b$CDF.y, d = db, w = wb, type = type)
-
-	}
+test.fit <- function(object, R = 100, zcmodel = 1, trace = FALSE){
   
-	out <- cbind(test0*c(1,n), c(mean(test[,1] >= test0[1]), mean(test[,2] >= test0[2])))
-	rownames(out) <- c("Kolmogorov-Smirnov", "Cramer-Von Mises")
-	colnames(out) <- c("statistic", "p-value")
-	out
-}
-
-
-
-
-#' @export
-terms.iqr <- function(x, ...){attr(x$mf, "terms")}
-#' @export
-model.matrix.iqr <- function(object, ...){
   mf <- object$mf
-  mt <- terms(mf)
-  model.matrix(mt, mf)
+  s <- object$s
+  type <- attr(mf, "type")
+  bfun <- attr(mf, "internal.bfun")
+  bfun2 <- attr(mf, "bfun")
+  theta <- attr(mf, "theta")
+  theta2 <- object$coef
+  Q0 <- attr(mf, "Q0"); chi0 <- qchisq(0.999, df = sum(s))
+
+  statsy <- attr(object$mf, "stats")$y
+  M <- 10/(statsy$M - statsy$m)
+  V <- attr(mf, "all.vars"); U <- attr(mf, "all.vars.unscaled")
+  x <- V$X; xw <- V$Xw; y <- V$y; z <- V$z0; d <- V$d; w <- V$weights; x2 <- U$X
+  CDFs <- attr(mf, "CDFs")
+  n <- N <- nrow(mf)
+  q <- ncol(x)
+  rho <- rep.int(1,n)
+  maxit <- 10 + 2*sum(s)
+
+  if(type == "ciqr"){
+    Tc <- trans(z = -Inf, y = y, d = 1 - d, w = w, type = type)
+    dat <- data.frame(z = -Inf, y = Tc$f(y), d = 1 - d, x = x)
+    mc <- findagoodestimator(dat,w)
+  }
+  else if(type == "ctiqr"){
+    minz <- min(z[z != -Inf])
+    z <- pmax(z, minz)
+    if(zcmodel == 1){u <- y - z; zz <- rep.int(0,n)}
+    else if(zcmodel == 2){u <- y; zz <- z}
+    else{stop("invalid 'zcmodel'")}
+
+
+    Tz <- trans(z = -y, y = -z, d = rep.int(1,n), w = w, type = type)
+    Tc <- trans(z = zz, y = u, d = 1 - d, w = w, type = type)
+
+    dat.z <- data.frame(z = Tz$f(-y), y = Tz$f(-z), d = 1, x = x)
+    dat.c <- data.frame(z = Tc$f(zz), y = Tc$f(u), d = 1 - d, x = x)
+
+    # this should NOT happen. But sometimes it does, as the spline is not perfectly monotone
+    dat.z$z[dat.z$z >= dat.z$y] <- -Inf 
+    dat.c$z[dat.c$z >= dat.c$y] <- -Inf
+
+    mz <- findagoodestimator(dat.z,w)
+    mc <- findagoodestimator(dat.c,w)
+
+    alphax <- alpha(object, mz,mc, zcmodel = zcmodel, Tc = Tc, Tz = Tz) # pr(Y > Z | x)
+    N <- round(n/mean(alphax)) # n. of observations to sample in order to obtain n final obs.
+    rho <- 1/alphax # inclusion probability of each obs.
+  }
+
+  exclude <- (if(type == "iqr") 0 else 0.02)
+  test0 <- test.unif.ct(z = CDFs$CDF.z, y = CDFs$CDF.y, d = d, w = w, type = type, exclude)
+  test <- matrix(,R,2)
+
+  if(trace){pb <- txtProgressBar(min = 0, max = R, style = 3)}
+  
+  for(b in 1:R){
+    
+    if(trace){setTxtProgressBar(pb, b)}
+
+    # x
+    
+    id <- sample.int(n, size = N, replace = TRUE, prob = rho)
+    xb <- x[id,, drop = FALSE]
+    xwb <- xw[id,, drop = FALSE]
+    x2b <- x2[id,, drop = FALSE]
+    wb <- w[id]
+    
+    # t
+    beta <- tcrossprod(apply_bfun(bfun2, runif(N), "bfun"), theta2)
+    tb <- yb <- (.rowSums(beta*x2b, N, q) - statsy$m)*M
+    
+    
+    # z,c,y,d
+    if(type == "ciqr"){
+      cb <- (if(!is.null(mc)) pch:::sim.pch(mc, x = mc$x[id,,drop = FALSE], method = "s") else Inf)
+      cb <- Tc$finv(cb)
+      yb <- pmin(cb, tb)
+      db <- (tb <= cb)
+    }
+    if(type == "ctiqr"){
+      zb <- pch:::sim.pch(mz, x = mz$x[id,,drop = FALSE], method = "s")
+      zb <- Tz$finv(zb)
+      zb <- (minz - zb + abs(minz + zb))/2 # pmax(-zb, minz)
+      cb <- (if(!is.null(mc)) pch:::sim.pch(mc, x = mc$x[id,,drop = FALSE], method = "s") else Inf)
+      cb <- Tc$finv(cb)
+      if(zcmodel == 1){cb <- cb + zb}
+      yb <- pmin(cb, tb)
+      db <- (tb <= cb)
+      nb <- length(obs <- which(yb > zb))
+      yb <- yb[obs]; zb <- zb[obs]; wb <- wb[obs]; db <- db[obs]
+      xb <- xb[obs,, drop = FALSE]; xwb <- xwb[obs,, drop = FALSE]
+
+      bfun$BB1 <- t(matrix(bfun$BB1[1,], ncol(bfun$BB1), nb))
+    }
+    
+    # fit the model. Use small eps0: the starting points are generally less good than
+    # those from start.theta!
+   
+    eps0 <- 0.001
+    eeTol <- 0.5
+    safeit <- 5
+    chitol <- 1.5
+
+    for(i in 1:5){
+      
+      fit.b <- iqr.newton(theta = theta, y = yb, z = zb, d = db, X = xb, Xw = xwb, 
+                        bfun = bfun, s = s, type = type, 
+                        maxit = maxit, tol = 1e-6, safeit = safeit, eps0 = eps0)
+    
+      thetadiff <- c(theta - fit.b$coef)[c(s == 1)]
+      chi <- t(thetadiff)%*%Q0%*%cbind(thetadiff)
+      
+      check1 <- (fit.b$rank > 0)
+      check2 <- (max(abs(fit.b$ee)) < eeTol)
+      check3 <- (chi < chi0*chitol)
+      
+      if(fit.ok <- (check1 && check2 && check3)){break}
+      eeTol <- eeTol + 0.5
+      eps0 <- eps0/2
+      safeit <- safeit + 2
+      chitol <- chitol*2
+    }
+
+    if(fit.ok){
+      test[b,] <- test.unif.ct(z = fit.b$pz, y = fit.b$py, 
+          d = db, w = wb, type = type, exclude)
+    }
+  }
+  if(trace){close(pb)}
+
+  out <- cbind(test0*c(1,sum(w)), 
+    c(
+      mean(test[,1] >= test0[1], na.rm = TRUE), 
+      mean(test[,2] >= test0[2], na.rm = TRUE)
+    ))
+  rownames(out) <- c("Kolmogorov-Smirnov", "Cramer-Von Mises")
+  colnames(out) <- c("statistic", "p-value")
+
+  out
 }
-#' @export
-vcov.iqr <- function(object, ...){object$covar}
-#' @export
-nobs.iqr <- function(object, ...){nrow(object$mf)}
+
+
+# kaplan-meier estimator for ct data. It returns time, cdf, n.event, cens, lower, upper.
+# If exclude != NULL, it will exclude the indicated proportion of events (and of course all non-events
+# in the same range).
+
+km <- function(z,y,d,w, type, exclude = NULL){
+  
+  if(type == "iqr"){m <- survfit(Surv(y, rep.int(1,length(y))) ~ 1, weights = w)}
+  else if(type == "ciqr"){m <- survfit(Surv(y,d) ~ 1, weights = w)}
+  else{
+    m <- survfit(coxph(Surv(z,y,d) ~ 1, weights = pmax(w,1e-6)), type = "aalen")
+  }
+
+  out <- data.frame(time = m$time, cdf = 1 - m$surv, n.event = m$n.event, 
+               low = 1 - m$upper, up = 1 - m$lower)
+  out <- out[out$n.event > 1e-6,]
+
+  if(type != "iqr" && !is.null(exclude)){
+    u <- cumsum(out$n.event)
+    u <- u/u[length(u)]
+    u <- which(u >= 1 - exclude)
+    out <- out[1:u[1],, drop = FALSE]
+  }
+
+  out
+}
+
+
+
+
+# ks and cvm statistic for uniformity with (possibly) censored and truncated data.
+# Even if exclude = 0, the final censored observations are excluded anyway.
+# Please avoid exclude = NULL, admitted but deprecated here.
+test.unif.ct <- function(z,y,d,w, type, exclude = 0.05){
+  
+  y <- pmax(y,1e-8) # y = 0 causes problems, especially with ctiqr
+  if(missing(w)){w <- NULL}
+  KM <- suppressWarnings(km(z,y,d,w, type, exclude))
+
+  n <- nrow(KM)
+  hat.Fy <- KM$cdf
+  Fy <- y <- KM$time # = punif(KM$time)
+      
+  # kolmogorov - smirnov
+  
+  DD <- Fy - hat.Fy
+  ks <- max(abs(DD))
+  
+  # cramer - von mises
+  
+  Fy <- c(0, Fy)
+  hat.Fy <- c(0, hat.Fy)
+  y <- c(0,y)
+  n <- n + 1
+  
+  U <- (hat.Fy - Fy)^2
+  h <- y[2:n] - y[1:(n-1)]
+  b1 <- U[1:(n-1)]
+  b2 <- U[2:n]
+  A <- (b1 + b2)*h/2
+  cvm <- sum(A)
+
+  ###
+  
+  c(ks = ks, cvm = cvm)	
+}
+
+# automatically finds a "good" estimator of a CDF. If there is no censoring (or very little censoring) on T,
+# C may be (almost) completely censored. If this happens, I just return NULL.
+findagoodestimator <- function(dat, w){
+  if(sum(dat$d*w)/sum(w) < 0.05){return(NULL)}
+
+  splx <- pch::splinex()
+  br <- max(5, min(15, round(nrow(dat)/30/(ncol(dat) - 3))))
+  CDF <- suppressWarnings(pch::pchreg(
+    Surv(z,y,d) ~ ., data = dat, weights = w, splinex = splx, breaks = br)) 
+
+  fit.ok <- (CDF$conv.status == 0)
+  br <- max(length(CDF$breaks),6)
+  delta.br <- 1
+  count <- 0
+  while(!fit.ok){
+
+    if(count == 32){break}
+    br <- br + delta.br
+    CDF <- suppressWarnings(pch::pchreg(
+    Surv(z,y,d) ~ ., data = dat, weights = w, splinex = splx, breaks = br))
+    count <- count + 1
+  
+    if(count == 5){br <- br - 5; delta.br <- -1}
+    if(count == 10){br <- br + 5; delta.br <- 0; splx$df <- 3; splx$v <- 0.95}
+    if(count == 11){delta.br <- 1}
+    if(count == 16){br <- br - 5; delta.br <- -1}
+    if(count == 21){br <- br + 5; delta.br <- 0; splx$df <- 1; splx$v <- 1}
+    if(count == 22){delta.br <- 1}
+    if(count == 27){br <- br - 5; delta.br <- -1}
+    fit.ok <- (CDF$conv.status == 0)
+  }
+  # for directly applying pch:::sim.pch
+  CDF$y <- attr(CDF$mf, "y")
+  CDF$u <- attr(CDF$mf, "u")
+  CDF$rangex <- attr(CDF$mf, "rangex")
+  CDF$splinex <- attr(CDF$mf, "splinex")
+  CDF
+}
+
+
+# computes P(Y > Z | x)
+alpha <- function(obj, mz, mc, k = 98, zcmodel, Tc, Tz){
+  
+  p <- seq.int(0.02, 0.99, length.out = k) # avoid left tail for robustness
+  t <- predict.iqr(obj, type = "QF", p = c(0.019, p), se = FALSE)
+  t <- as.matrix(t); n <- nrow(t)
+  staty <- attr(obj$mf, "stats")$y
+  t <- (t - staty$m)/(staty$M - staty$m)*10
+  
+  Fz <- Sc <- matrix(,n,k+1)
+  for(j in 1:(k + 1)){
+    Fz[,j] <- quickpred(mz, y = Tz$f(-t[,j]), type = "SF")
+    Sc[,j] <- (if(!is.null(mc) & zcmodel == 2) quickpred(mc, y = Tc$f(t[,j]), type = "SF") else 1)
+  }
+  Sc <- Sc[,-1]
+  Fz0 <- Fz[,1]
+  deltat <- t[,2:(k+1)] - t[,(1:k)]
+  fz <- (Fz[,2:(k + 1)] - Fz[,1:k])/deltat
+  
+  r <- .rowSums(fz, n, k)
+  r[r == 0] <- 1 # arbitrary, to avoid 0/0
+  fz <- fz/r*(1 - Fz0)
+
+  u <- cbind(Fz0, fz*Sc*t(matrix(1 - p, k,n)))
+  u <- .rowSums(u, n, k + 1)
+ 
+  pmax(0.1, pmin(u,1))
+}
+
+
+
+
+quickpred <- function(obj, y, type = c("PDF", "SF")){
+
+  type <- type[1]
+  Breaks <- obj$breaks
+  k <- attr(Breaks, "k")
+  h <- attr(Breaks, "h")
+  lambda <- obj$lambda
+  Lambda <- obj$Lambda
+  u <- attr(obj$mf, "u")
+  end.y <- u(y); y <- (y + Breaks[1] - 1 + abs(y - Breaks[1] + 1))/2 # pmax(y, Breaks[1] - 1)
+  n <- length(y)
+  t <- y - c(0,Breaks)[end.y]
+  ind <- cbind(1:n,end.y)
+  lambda <- cbind(0,lambda)[ind]
+  Lambda <- cbind(0,0,Lambda)[ind] + lambda*t
+  SF <- exp(-Lambda)
+  if(type == "SF"){return(SF)}
+  else{return(lambda*SF)}
+}
+
+
+
+# Transform a censored, truncated variable for a better prediction with pchreg.
+trans <- function(z,y,d,w, type){
+
+  if(all(d == 0)){return(list(f = I, finv = I))}
+  hatF <- km(z,y,d,w, type, exclude = NULL)
+    
+  n <- nrow(hatF)
+  F0 <- hatF[1,]
+  F1 <- hatF[n,]
+  hatF <- hatF[2:(n - 1),]
+  hatF <- hatF[!(hatF$cdf %in% 0:1),]
+  
+  n <- nrow(hatF)
+  F0$cdf <- hatF$cdf[1]/10; F0$time <- F0$time - 1
+  F1$cdf <- 1 - (1 - hatF$cdf[n])/10; F1$time <- F1$time + 1
+  hatF <- rbind(F0, hatF, F1)
+  
+  n <- n + 2
+  tstar <- -log(1 - hatF$cdf)
+  t <- hatF$time
+  tstar <- c(tstar[1] - 1, tstar, tstar[n] + 1)
+  t <- c(t[1] - 10, t, t[n] + 10)
+  
+  # Don't use "hyman" (which is actually faster), as out-of-range predictions may be not monotone
+  f <- splinefun(t, tstar, method = "monoH.FC")
+  finv <- splinefun(tstar, t, method = "monoH.FC")
+
+  list(f = f, finv = finv)
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
