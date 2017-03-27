@@ -14,8 +14,8 @@ the entire conditional quantile function of a response variable.
 \tabular{ll}{
 Package: \tab qrcm\cr
 Type: \tab Package\cr
-Version: \tab 2.0\cr
-Date: \tab 2017-02-02\cr
+Version: \tab 2.1\cr
+Date: \tab 2017-03-26\cr
 License: \tab GPL-2\cr
 }
 The function \code{\link{iqr}} permits specifying the regression model, allowing for censored and truncated outcomes.
@@ -30,9 +30,9 @@ Paolo Frumento
 Maintainer: Paolo Frumento <paolo.frumento@ki.se>
 }
 \references{
-Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72(1), 74-84, doi: 10.1111/biom.12410.
+Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), pp 74-84, doi: 10.1111/biom.12410.
 
-Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics (in press), doi:10.1111/biom.12675.
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, doi: 10.1111/biom.12675.
 
 }
 

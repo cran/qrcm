@@ -34,7 +34,7 @@ the test statistic is not known. To evaluate it, the model is fitted on \kbd{R} 
 generated under the null hypothesis. 
 
 If the data are censored and truncated, \code{object$CDF} is as well a censored and truncated outcome,
-and its quantiles are estimated using a null Cox model. The fitted survival curve is then compared with
+and its quantiles must be estimated with Kaplan-Meier. The fitted survival curve is then compared with
 a \eqn{U(0,1)}. 
 
 To run Monte Carlo simulations when data are censored or truncated,
@@ -51,7 +51,7 @@ common situation, and is verified when censoring occurs at the end of the follow
 \item If \kbd{zcmodel = 2}, it is assumed that \eqn{C} and \eqn{Z} are conditionally independent.
 This situation is more plausible when all censoring is due to drop-out.
 }
-The testing procedure is described in details by Frumento and Bottai (2015, 2016).
+The testing procedure is described in details by Frumento and Bottai (2016, 2017).
 }
 \value{
 a matrix with columns \code{statistic} and \code{p.value}, 
@@ -59,10 +59,9 @@ reporting the Kolmogorov-Smirnov and Cramer-Von Mises statistic and the associat
 p-values evaluated with Monte Carlo.
 }
 \references{
-Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72(1), 74-84, doi: 10.1111/biom.12410.
+Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), pp 74-84, doi: 10.1111/biom.12410.
 
-Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics (in press), doi:10.1111/biom.12675.
-
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, doi: 10.1111/biom.12675.
 }
 \author{
 Paolo Frumento \email{paolo.frumento@ki.se}
@@ -72,7 +71,7 @@ Paolo Frumento \email{paolo.frumento@ki.se}
 y <- rnorm(1000)
 m1 <- iqr(y ~ 1, formula.p = ~ I(qnorm(p))) # correct
 m2 <- iqr(y ~ 1, formula.p = ~ p)  # misspecified
-test.fit(m1)
-test.fit(m2)
+test.fit(m1, R = 25)
+test.fit(m2, R = 25)
 }
 \keyword{htest}

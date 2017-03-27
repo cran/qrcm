@@ -85,7 +85,7 @@ check.in <- function(mf, formula.p, s){
 	# p3 is for internal use (p.bisec.internal). A grid with p reachable by bisection on the index scale.
 	p1 <- pbeta(seq.int(qbeta(1e-6,2,2), qbeta(1 - 1e-6,2,2), length.out = 1000),2,2)
 	p2 <- (1:1023)/1024
-  p3 <- pbeta(seq.int(qbeta(1/(1000*n),2.5,2.5), qbeta(1 - 1/(1000*n),2.5,2.5), length.out = 1023),2.5,2.5)
+        p3 <- pbeta(seq.int(qbeta(1/(1000*n),2.5,2.5), qbeta(1 - 1/(1000*n),2.5,2.5), length.out = 1023),2.5,2.5)
 
 	if((use.slp <- is.slp(formula.p))){
 		k <- attr(use.slp, "k")
@@ -251,8 +251,8 @@ check.in <- function(mf, formula.p, s){
 	  pp[,1] <- 1; pp[,2] <- p
 	  if(k > 1){for(j in 2:k){pp[,j + 1] <- pp[,j]*p}}
 	  bp <- tcrossprod(pp, t(bfun$a))
-    b1p <- cbind(0, tcrossprod(pp[,1:k, drop = FALSE], t(bfun$a1[-1,-1, drop = FALSE])))
-    pp <- cbind(pp, pp[,k + 1]*p, pp[,k + 1]*p^2)
+          b1p <- cbind(0, tcrossprod(pp[,1:k, drop = FALSE], t(bfun$a1[-1,-1, drop = FALSE])))
+          pp <- cbind(pp, pp[,k + 1]*p, pp[,k + 1]*p^2)
 	  Bp <- tcrossprod(pp[,2:(k + 2)], t(bfun$A))
 	  BBp <- tcrossprod(pp[,3:(k + 3)], t(bfun$AA))
 	  BB1 <- colSums(bfun$AA)
@@ -269,7 +269,7 @@ check.in <- function(mf, formula.p, s){
 	bpij <- NULL; for(i in 1:ncol(bp)){bpij <- cbind(bpij, bp*bp[,i])}
 
 	internal.bfun <- list(p = p, bp = bp, b1p = b1p, Bp = Bp, BBp = BBp, BB1 = BB1, bpij = bpij)
-  attr(internal.bfun, "pfun") <- approxfun(c(p[1], 0.5*(p[-1023] + p[-1])),p, method = "constant", rule = 2)
+        attr(internal.bfun, "pfun") <- approxfun(c(p[1], 0.5*(p[-1023] + p[-1])),p, method = "constant", rule = 2)
 
 	# output. U = the original variables. V = the scaled/rotated variables.
 	# stats.B, stats.X, stats.y = lists with the values use to scale/rotate
@@ -467,9 +467,9 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s){
 
 	# fitted CDFs (for internal use, precision ~ 0.001)
 
-  CDFs <- data.frame(CDF.y = fit$py, 
-     CDF.z = (if(type == "ctiqr") fit$pz else NA))
-  attr(CDFs, "km") <- km(CDFs$CDF.z, CDFs$CDF.y, V$d, V$weights, type)
+       CDFs <- data.frame(CDF.y = fit$py, 
+       CDF.z = (if(type == "ctiqr") fit$pz else NA))
+       attr(CDFs, "km") <- km(CDFs$CDF.z, CDFs$CDF.y, V$d, V$weights, type)
 
 	# output
   
@@ -1136,11 +1136,11 @@ plot.iqr <- function(x, conf.int = TRUE, polygon = TRUE, which = NULL, ask = TRU
 			pick <- menu(L$labels, title = "Make a plot selection (or 0 to exit):\n")
 			if(pick > 0 && pick <= q){plot.iqr.int(p,u,pick,conf.int,L)}
 			else if(pick == q + 1){
-        KM <- attr(attr(x$mf, "CDFs"), "km")
+				KM <- attr(attr(x$mf, "CDFs"), "km")
 				plot(KM$time, KM$cdf, pch = 20, cex = 0.5, 
-             xlim = c(0,1), ylim = c(0,1), 
-             ylab = "U(0,1) quantiles", xlab = "fitted CDF quantiles")
-        points(KM$time, KM$low, pch = ".")
+				xlim = c(0,1), ylim = c(0,1), 
+				ylab = "U(0,1) quantiles", xlab = "fitted CDF quantiles")
+				points(KM$time, KM$low, pch = ".")
 				points(KM$time, KM$up, pch = ".")
 				abline(0,1)
 			}
@@ -1640,29 +1640,49 @@ test.fit <- function(object, R = 100, zcmodel = 1, trace = FALSE){
 
 # kaplan-meier estimator for ct data. It returns time, cdf, n.event, cens, lower, upper.
 # If exclude != NULL, it will exclude the indicated proportion of events (and of course all non-events
-# in the same range).
+# in the same range). With Survival 2.41, a bug caused the function to stop with an error.
+# To fix the bug, the function was split into "km" and "km.internal" as below. This is the
+# only change from qrcm 2.0 to qrcm 2.1.
 
 km <- function(z,y,d,w, type, exclude = NULL){
+
+  km.internal <- function(z,y,d,w, type, exclude = NULL){
   
-  if(type == "iqr"){m <- survfit(Surv(y, rep.int(1,length(y))) ~ 1, weights = w)}
-  else if(type == "ciqr"){m <- survfit(Surv(y,d) ~ 1, weights = w)}
-  else{
-    m <- survfit(coxph(Surv(z,y,d) ~ 1, weights = pmax(w,1e-6)), type = "aalen")
+    if(type == "iqr"){m <- survfit(Surv(y, rep.int(1,length(y))) ~ 1, weights = w)}
+    else if(type == "ciqr"){m <- survfit(Surv(y,d) ~ 1, weights = w)}
+    else{
+      m <- survfit(coxph(Surv(z,y,d) ~ 1, weights = pmax(w,1e-6)), type = "aalen")
+    }
+
+    out <- data.frame(time = m$time, cdf = 1 - m$surv, n.event = m$n.event, 
+      low = 1 - m$upper, up = 1 - m$lower)
+    out <- out[out$n.event > 1e-6,]
+
+    if(type != "iqr" && !is.null(exclude)){
+      u <- cumsum(out$n.event)
+      u <- u/u[length(u)]
+      u <- which(u >= 1 - exclude)
+      out <- out[1:u[1],, drop = FALSE]
+    }
+    out
   }
 
-  out <- data.frame(time = m$time, cdf = 1 - m$surv, n.event = m$n.event, 
-               low = 1 - m$upper, up = 1 - m$lower)
-  out <- out[out$n.event > 1e-6,]
 
-  if(type != "iqr" && !is.null(exclude)){
-    u <- cumsum(out$n.event)
-    u <- u/u[length(u)]
-    u <- which(u >= 1 - exclude)
-    out <- out[1:u[1],, drop = FALSE]
+  eps <- 1e-6
+  n <- length(y)
+  u <- (1:n)/n
+  for(i in 1:10){
+    out <- try(suppressWarnings(km.internal(z,y,d,w,type,exclude)), silent = TRUE)
+    if(fit.ok <- (class(out)[1] != "try-error")){break}
+
+    delta <- u*eps
+    y <- y + delta
+    z <- z - delta
+    eps <- eps*2
   }
-
   out
 }
+
 
 
 

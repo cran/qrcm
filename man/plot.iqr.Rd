@@ -37,7 +37,7 @@ combination of known parametric functions of \eqn{p}. With this command, a plot 
 \eqn{\beta(p)} versus \eqn{p} is created. If \kbd{ask = TRUE}, an additional option permits
 plotting a Q-Q plot of the fitted cumulative distribution function (\acronym{CDF}), that should follow
 a U(0,1) distribution if the model is correctly specified. If the data are censored or truncated,
-this is assessed applying a nonparametric estimator to the fitted \acronym{CDF} values.
+this is assessed applying the Kaplan-Meier estimator to the fitted \acronym{CDF} values.
 See also \code{\link{test.fit}} for a formal test of uniformity.
 }
 \author{

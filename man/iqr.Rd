@@ -68,11 +68,19 @@ iqr(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-6, maxit)
   Legendre polynomial (see \code{\link{slp}}). Any user-defined function \eqn{b(p, \ldots)}
   can be used, see \sQuote{Examples}.
   
-  Estimation of \eqn{\theta} is carried out by minimizing the
+  Estimation of \eqn{\theta} is carried out by minimizing an integrated loss function, 
+  corresponding to the
   integral, over \eqn{p}, of the loss function of standard quantile regression. This
   motivates the acronym \code{iqr} (integrated quantile regression).
-  From version 2.0 of the package, censored and truncated data are also allowed,
-  as described in Frumento and Bottai (2017).
+  
+  From version 2.0 of the package, censored and truncated data are also allowed.
+  Data are censored when, instead of a response variable \eqn{T}, one can only observe
+  \eqn{Y = \min(T,C)} and \eqn{d = I(T \le C)}. Here, \eqn{C} is a censoring variable
+  that is assumed to be conditionally independent of \eqn{T}. Truncation occurs if
+  \eqn{Y} can only be observed when it exceeds another random variable \eqn{Z}. For example,
+  in the prevalent sampling design, subjects with a disease are enrolled; those who died
+  before enrollment are not observed. If the data are censored or truncated, \eqn{\theta}
+  is estimated by solving a system of estimating equation as described in Frumento and Bottai (2017).
 }
 \value{
 An object of class \dQuote{\code{iqr}}, a list containing the following items:
@@ -93,9 +101,9 @@ The generic accessor functions \code{coefficients}, \code{formula}, \code{terms}
 \code{vcov} are available to extract information from the fitted model.
 }
 \references{
-Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72(1), 74-84, doi: 10.1111/biom.12410.
+Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), pp 74-84, doi: 10.1111/biom.12410.
 
-Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics (in press), doi:10.1111/biom.12675.
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, doi: 10.1111/biom.12675.
 
 }
 \author{
@@ -104,7 +112,7 @@ Paolo Frumento \email{paolo.frumento@ki.se}
 \note{
 
   By expressing quantile regression coefficients as functions of \eqn{p}, a parametric model for the conditional
-  quantile function is specified. The induced \acronym{PDF} and \acronym{CDF} can be used to diagnose model fit.
+  quantile function is specified. The induced \acronym{PDF} and \acronym{CDF} can be used as diagnostic tools.
   Negative values of \code{PDF} indicate quantile crossing, i.e., the conditional quantile function is not
   monotonically increasing. Null values of \code{PDF} indicate observations that lie outside the
   estimated support of the data, defined by quantiles of order 0 and 1. If null or negative \code{PDF}
@@ -114,11 +122,11 @@ Paolo Frumento \email{paolo.frumento@ki.se}
 
   The intercept can be excluded from \code{formula}, e.g., 
   \code{iqr(y ~ -1 + x)}. This, however, implies that when \code{x = 0},
-  \code{y} is always {0}. See example 5.
+  \code{y} is always {0}. See example 5 in \sQuote{Examples}.
   The intercept can also be removed from \code{formula.p}. 
   This is recommended if the data are bounded. For example, for strictly positive data,
   use \code{iqr(y ~ 1, formula.p = -1 + slp(p,3))} to force the smallest quantile
-  to be zero. See example 6.
+  to be zero. See example 6 in \sQuote{Examples}.
   
 
 }
@@ -162,7 +170,7 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   
   summary(m1)
   summary(m1, p = c(0.25,0.5,0.75))
-  test.fit(m1)
+  test.fit(m1, R = 25)
   par(mfrow = c(1,2)); plot(m1, ask = FALSE)
   # see the documentation for 'summary.iqr', 'test.fit', and 'plot.iqr'
 

@@ -35,7 +35,7 @@ a standard summary of the estimated quantile regression coefficients
 is returned for each value of \kbd{p}. If \kbd{cov = TRUE}, the covariance
 matrix is also reported.
 
-If \kbd{p} is missing (the default), a list with the following items is returned:
+If \kbd{p} is missing (the default), a list with the following items:
 \item{converged}{logical value indicating the convergence status.}
 \item{n.it}{the number of iterations.}
 \item{n}{the number of observations.}
