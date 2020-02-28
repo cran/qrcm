@@ -41,7 +41,7 @@ this is assessed applying the Kaplan-Meier estimator to the fitted \acronym{CDF}
 See also \code{\link{test.fit}} for a formal test of uniformity.
 }
 \author{
-Paolo Frumento \email{paolo.frumento@ki.se}
+Paolo Frumento \email{paolo.frumento@unipi.it}
 }
 \seealso{
 \code{\link{iqr}} for model fitting; \code{\link{summary.iqr}} and \code{\link{predict.iqr}}

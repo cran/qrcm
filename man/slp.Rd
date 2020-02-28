@@ -37,7 +37,7 @@ The value of \kbd{k} is reported as attribute.
 Refaat El Attar (2009), \emph{Legendre Polynomials and Functions}, CreateSpace, ISBN 978-1-4414-9012-4.
 }
 \author{
-Paolo Frumento \email{paolo.frumento@ki.se}
+Paolo Frumento \email{paolo.frumento@unipi.it}
 }
 \note{
 The estimation algorithm of \command{iqr} is optimized for objects of class \dQuote{slp},

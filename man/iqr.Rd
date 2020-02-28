@@ -103,11 +103,10 @@ The generic accessor functions \code{coefficients}, \code{formula}, \code{terms}
 \references{
 Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), pp 74-84, doi: 10.1111/biom.12410.
 
-Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, doi: 10.1111/biom.12675.
-
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, 73(4), pp 1179-1188, doi: 10.1111/biom.12675.
 }
 \author{
-Paolo Frumento \email{paolo.frumento@ki.se}
+Paolo Frumento \email{paolo.frumento@unipi.it}
 }
 \note{
 
@@ -170,7 +169,7 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   
   summary(m1)
   summary(m1, p = c(0.25,0.5,0.75))
-  test.fit(m1, R = 25)
+  test.fit(m1)
   par(mfrow = c(1,2)); plot(m1, ask = FALSE)
   # see the documentation for 'summary.iqr', 'test.fit', and 'plot.iqr'
 

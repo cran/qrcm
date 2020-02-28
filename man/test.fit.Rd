@@ -61,17 +61,17 @@ p-values evaluated with Monte Carlo.
 \references{
 Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), pp 74-84, doi: 10.1111/biom.12410.
 
-Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, doi: 10.1111/biom.12675.
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, 73(4), pp 1179-1188, doi: 10.1111/biom.12675.
 }
 \author{
-Paolo Frumento \email{paolo.frumento@ki.se}
+Paolo Frumento \email{paolo.frumento@unipi.it}
 }
 
 \examples{
 y <- rnorm(1000)
 m1 <- iqr(y ~ 1, formula.p = ~ I(qnorm(p))) # correct
 m2 <- iqr(y ~ 1, formula.p = ~ p)  # misspecified
-test.fit(m1, R = 25)
-test.fit(m2, R = 25)
+test.fit(m1)
+test.fit(m2)
 }
 \keyword{htest}

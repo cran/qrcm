@@ -3,7 +3,7 @@
 #' @importFrom survival Surv survfit coxph
 #' @importFrom graphics plot points abline polygon
 #' @importFrom grDevices adjustcolor
-#' @importFrom utils menu setTxtProgressBar txtProgressBar tail
+#' @importFrom utils menu setTxtProgressBar txtProgressBar tail getFromNamespace
 #' @import pch
 
 
@@ -439,7 +439,8 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s){
 		if(fit.ok <- (fit$rank == ncol(fit$jacobian) & max(abs(fit$ee)) < eeTol)){
 			covar <- try(cov.theta(fit$coefficients, V$y, V$z, V$d, V$X, V$Xw,
 				V$weights, bfun, fit$p.star.y, fit$p.star.z, type, s = s), silent = TRUE)
-			fit.ok <- (class(covar) != "try-error")
+			fit.ok <- !inherits(covar, "try-error")
+			
 		}
 
 		covar.ok <- (if(fit.ok){(qr(covar$Q)$rank == fit$rank)} else FALSE)
@@ -893,9 +894,11 @@ start.theta <- function(y,z,d, x, weights, bfun, df, yy, zz, s){
 
 	if(is.null(yy)){p.star <- (rank(y) - 0.5)/length(y)}
 	else{
-	  m0 <- suppressWarnings(pch:::pch.fit(z = zz, y = yy, d = d, 
+	  pch.fit <- getFromNamespace("pch.fit", ns = "pch")
+	  predF.pch <- getFromNamespace("predF.pch", ns = "pch")
+	  m0 <- suppressWarnings(pch.fit(z = zz, y = yy, d = d, 
 		x = cbind(1,x), w = weights, breaks = df))
-	  p.star <- 1 - pch:::predF.pch(m0)[,3]
+	  p.star <- 1 - predF.pch(m0)[,3]
 	}
 
 	pfun <- attr(bfun, "pfun")
@@ -1367,7 +1370,7 @@ iqr.newton <- function(theta, y,z,d,X,Xw, bfun, s, type, tol, maxit, safeit, eps
     
     if(type == "iqr"){
       H1 <- try(chol(h), silent = TRUE)
-      err <- (class(H1) == "try-error")
+      err <- inherits(H1, "try-error")
     }
     else{
       H1 <- qr(h)
@@ -1569,17 +1572,18 @@ test.fit <- function(object, R = 100, zcmodel = 1, trace = FALSE){
     
     
     # z,c,y,d
+    sim.pch <- getFromNamespace("sim.pch", ns = "pch")
     if(type == "ciqr"){
-      cb <- (if(!is.null(mc)) pch:::sim.pch(mc, x = mc$x[id,,drop = FALSE], method = "s") else Inf)
+      cb <- (if(!is.null(mc)) sim.pch(mc, x = mc$x[id,,drop = FALSE], method = "s") else Inf)
       cb <- Tc$finv(cb)
       yb <- pmin(cb, tb)
       db <- (tb <= cb)
     }
     if(type == "ctiqr"){
-      zb <- pch:::sim.pch(mz, x = mz$x[id,,drop = FALSE], method = "s")
+      zb <- sim.pch(mz, x = mz$x[id,,drop = FALSE], method = "s")
       zb <- Tz$finv(zb)
       zb <- (minz - zb + abs(minz + zb))/2 # pmax(-zb, minz)
-      cb <- (if(!is.null(mc)) pch:::sim.pch(mc, x = mc$x[id,,drop = FALSE], method = "s") else Inf)
+      cb <- (if(!is.null(mc)) sim.pch(mc, x = mc$x[id,,drop = FALSE], method = "s") else Inf)
       cb <- Tc$finv(cb)
       if(zcmodel == 1){cb <- cb + zb}
       yb <- pmin(cb, tb)
@@ -1673,8 +1677,8 @@ km <- function(z,y,d,w, type, exclude = NULL){
   u <- (1:n)/n
   for(i in 1:10){
     out <- try(suppressWarnings(km.internal(z,y,d,w,type,exclude)), silent = TRUE)
-    if(fit.ok <- (class(out)[1] != "try-error")){break}
-
+    if(fit.ok <- (!inherits(out, "try-error"))){break}
+    
     delta <- u*eps
     y <- y + delta
     z <- z - delta
