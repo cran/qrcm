@@ -4,21 +4,20 @@
 Quantile Regression Coefficients Modeling
 }
 \description{
-This function implements Frumento and Bottai's (2016) method for quantile regression
+This function implements Frumento and Bottai's (2016, 2017) methods for quantile regression
 coefficients modeling (qrcm). Quantile regression coefficients are described
-by (flexible) parametric functions of the order of the quantile. From version 2.0,
-this function can also be used with censored and truncated data, as described in
-Frumento and Bottai (2017).
+by (flexible) parametric functions of the order of the quantile. Quantile crossing can be eliminated using the method described in Sottile and Frumento (2021).
 }
 \usage{
-iqr(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-6, maxit)
+iqr(formula, formula.p = ~ slp(p,3), weights, data, s, 
+    tol = 1e-6, maxit, remove.qc = FALSE)
 }
 \arguments{
   \item{formula}{
     a two-sided formula of the form \code{y ~ x1 + x2 + \ldots}: 
     a symbolic description of the quantile regression model. The left side of the formula
-    should be \code{Surv(time,event)} if the data are right-censored, and \code{Surv(time,time2,event)}
-    if the data are left-truncated (\code{time < time2}, \code{time} can be \kbd{-Inf}).
+    is \code{Surv(time,event)} if the data are right-censored, and \code{Surv(time,time2,event)}
+    if the data are right-censored and left-truncated (\code{time < time2}, \code{time} can be \kbd{-Inf}).
   }
   \item{formula.p}{
     a one-sided formula of the form \code{~ b1(p, \ldots) + b2(p, \ldots) + \ldots}, describing how 
@@ -37,6 +36,9 @@ iqr(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-6, maxit)
   }
   \item{maxit}{
     maximum number of iterations.
+  }
+  \item{remove.qc}{
+    either a logical value, or a list created with \code{\link{qc.control}}. See \sQuote{Details}.
   }
 }
 \details{
@@ -68,19 +70,17 @@ iqr(formula, formula.p = ~ slp(p,3), weights, data, s, tol = 1e-6, maxit)
   Legendre polynomial (see \code{\link{slp}}). Any user-defined function \eqn{b(p, \ldots)}
   can be used, see \sQuote{Examples}.
   
-  Estimation of \eqn{\theta} is carried out by minimizing an integrated loss function, 
-  corresponding to the
-  integral, over \eqn{p}, of the loss function of standard quantile regression. This
-  motivates the acronym \code{iqr} (integrated quantile regression).
-  
-  From version 2.0 of the package, censored and truncated data are also allowed.
-  Data are censored when, instead of a response variable \eqn{T}, one can only observe
-  \eqn{Y = \min(T,C)} and \eqn{d = I(T \le C)}. Here, \eqn{C} is a censoring variable
-  that is assumed to be conditionally independent of \eqn{T}. Truncation occurs if
-  \eqn{Y} can only be observed when it exceeds another random variable \eqn{Z}. For example,
-  in the prevalent sampling design, subjects with a disease are enrolled; those who died
-  before enrollment are not observed. If the data are censored or truncated, \eqn{\theta}
-  is estimated by solving a system of estimating equation as described in Frumento and Bottai (2017).
+  If no censoring and truncation are present, estimation of \eqn{\theta} is carried out 
+  by minimizing an objective function that corresponds 
+  to the integral, with respect to \eqn{p}, of the loss function of standard quantile regression. 
+  Details are in Frumento and Bottai (2016). If the data are censored or truncated, instead,
+  \eqn{\theta} is estimated by solving the estimating equations described in Frumento and Bottai (2017).
+
+  The option \code{remove.qc} applies the method described by Sottile and Frumento (2021) 
+  to remove quantile crossing. You can either choose \code{remove.qc = TRUE}, or use
+  \code{remove.qc = qc.control(...)}, which allows to specify the operational parameters
+  of the algorithm. Please read \code{\link{qc.control}} for more details on the method,
+  and use \code{\link{diagnose.qc}} to diagnose quantile crossing.
 }
 \value{
 An object of class \dQuote{\code{iqr}}, a list containing the following items:
@@ -88,52 +88,84 @@ An object of class \dQuote{\code{iqr}}, a list containing the following items:
 \item{converged}{logical. The convergence status.}
 \item{n.it}{the number of iterations.}
 \item{call}{the matched call.}
-\item{obj.function}{the value of the minimized integrated loss function (\kbd{NULL} if the data are censored or truncated).}
+\item{obj.function}{if the data are neither censored nor truncated, the value of the minimized loss function; otherwise, a meaningful loss function which, however, is not the objective function of the model (see note 3). The number of model parameter is returned as an attribute.}
 \item{mf}{the model frame used.}
 \item{PDF, CDF}{the fitted values of the conditional probability density function (\acronym{PDF})
-and cumulative distribution function (\acronym{CDF}).}
+and cumulative distribution function (\acronym{CDF}). See note 1 for details.}
 \item{covar}{the estimated covariance matrix.}
 \item{s}{the used \sQuote{\kbd{s}} matrix.}
 Use \code{\link{summary.iqr}}, \code{\link{plot.iqr}}, and \code{\link{predict.iqr}}
 for summary information, plotting, and predictions from the fitted model. The function
 \code{\link{test.fit}} can be used for goodness-of-fit assessment.
-The generic accessor functions \code{coefficients}, \code{formula}, \code{terms}, \code{model.matrix}, 
-\code{vcov} are available to extract information from the fitted model.
+The generic accessory functions \code{coefficients}, \code{formula}, \code{terms}, \code{model.matrix}, 
+\code{vcov} are available to extract information from the fitted model. The special function
+\code{\link{diagnose.qc}} can be used to diagnose quantile crossing.
 }
 \references{
 Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), pp 74-84, doi: 10.1111/biom.12410.
 
-Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, 73(4), pp 1179-1188, doi: 10.1111/biom.12675.
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, doi: 10.1111/biom.12675.
+
+Sottile, G., and Frumento, P. (2021). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling [forthcoming].
 }
 \author{
 Paolo Frumento \email{paolo.frumento@unipi.it}
 }
 \note{
 
-  By expressing quantile regression coefficients as functions of \eqn{p}, a parametric model for the conditional
-  quantile function is specified. The induced \acronym{PDF} and \acronym{CDF} can be used as diagnostic tools.
-  Negative values of \code{PDF} indicate quantile crossing, i.e., the conditional quantile function is not
-  monotonically increasing. Null values of \code{PDF} indicate observations that lie outside the
-  estimated support of the data, defined by quantiles of order 0 and 1. If null or negative \code{PDF}
-  values occur for a relatively large proportion of data, the model is probably misspecified or ill-defined.
+  \strong{NOTE 1 (\kbd{PDF}, \kbd{CDF}, quantile crossing, and goodness-of-fit).} 
+  By expressing quantile regression coefficients as functions of \eqn{p}, you practically specify 
+  a parametric model for the entire conditional distribution. The induced \kbd{CDF} is the value \eqn{p*}
+  such that \eqn{y = Q(p* | x)}. The corresponding \kbd{PDF} is given by \eqn{1/Q'(p* | x)}.
+  Negative values of \code{PDF} indicate quantile crossing, occurring when the estimated quantile function is not
+  monotonically increasing. If negative \code{PDF} values occur for a relatively large proportion of data, 
+  the model is probably misspecified or ill-defined.
   If the model is correct, the fitted \code{CDF} should approximately follow a Uniform(0,1) distribution.
   This idea is used to implement a goodness-of-fit test, see \code{\link{test.fit}}.
 
+  \strong{NOTE 2 (model intercept).} 
   The intercept can be excluded from \code{formula}, e.g., 
   \code{iqr(y ~ -1 + x)}. This, however, implies that when \code{x = 0},
-  \code{y} is always {0}. See example 5 in \sQuote{Examples}.
+  \code{y} is zero at all quantiles. See example 5 in \sQuote{Examples}.
   The intercept can also be removed from \code{formula.p}. 
   This is recommended if the data are bounded. For example, for strictly positive data,
   use \code{iqr(y ~ 1, formula.p = -1 + slp(p,3))} to force the smallest quantile
   to be zero. See example 6 in \sQuote{Examples}.
   
-
+  \strong{NOTE 3 (censoring, truncation, and loss function).} 
+  Data are right-censored when, instead of a response variable \eqn{T}, one can only observe
+  \eqn{Y = min(T,C)} and \eqn{d = I(T \le C)}. Here, \eqn{C} is a censoring variable
+  that is assumed to be conditionally independent of \eqn{T}. Additionally, left truncation occurs if
+  \eqn{Y} can only be observed when it exceeds another random variable \eqn{Z}. For example,
+  in the prevalent sampling design, subjects with a disease are enrolled; those who died
+  before enrollment are not observed. 
+  
+  Ordinary quantile regression minimizes \eqn{L(\beta(p)) = \sum (p - \omega)(t - x'\beta(p))}
+  where \eqn{\omega = I(t \le x'\beta(p))}. Equivalently, it solves its first derivative,
+  \eqn{S(\beta(p)) = \sum x(\omega - p)}. The objective function of \command{iqr}
+  is simply the integral of \eqn{L(\beta(p | \theta))} with respect to \eqn{p}.
+  
+  If the data are censored and truncated, \eqn{\omega} is replaced by
+  \deqn{\omega* = \omega.y + (1 - d)\omega.y(p - 1)/S.y - \omega.z - \omega.z(p - 1)/S.z + p}
+  where \eqn{\omega.y = I(y \le x'\beta(p))}, \eqn{\omega.z = I(z \le x'\beta(p))}, \eqn{S.y = P(T > y)},
+  and \eqn{S.z = P(T > z)}. 
+  The above formula can be obtained from equation (7) of Frumento and Bottai, 2017. 
+  Replacing \eqn{\omega} with \eqn{\omega*} in \eqn{L(\beta(p))} is \strong{NOT} equivalent 
+  to replacing \eqn{\omega} with \eqn{\omega*} in \eqn{S(\beta(p))}.
+  % Note to myself: I am totally sure of this! The two functions L(omega = omega*) and S(omega = omega*) 
+  % are NOT the derivative of each other, and do NOT generate the same solution, not even asymptotically.
+  The latter option leads to a much simpler computation, and generates the estimating 
+  equation used by \command{iqr}. This means that, if the data are censored or truncated, 
+  the \kbd{obj.function} returned by \command{iqr} is \strong{NOT} the objective function being
+  minimized, and should not be used to compare models. However, if one of two models has a much larger
+  value of the \kbd{obj.function}, this may be a sign of severe misspecification or poor convergence.
 }
 \seealso{
 \code{\link{summary.iqr}}, \code{\link{plot.iqr}}, \code{\link{predict.iqr}},
-for summary, plotting, and prediction, and \code{\link{test.fit}} for goodness-of-fit assessment.
+for summary, plotting, and prediction, and \code{\link{test.fit.iqr}} for goodness-of-fit assessment;
 \code{\link{plf}} and \code{\link{slp}} to define \eqn{b(p)}
-to be a piecewise linear function and a shifted Legendre polynomial basis, respectively.
+to be a piecewise linear function and a shifted Legendre polynomial basis, respectively;
+\code{\link{diagnose.qc}} to diagnose quantile crossing.
 }
 \examples{
 
@@ -153,7 +185,7 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   # the fitted quantile regression coefficient functions are
     # beta0(p) = m1$coef[1,1] + m1$coef[1,2]*qnorm(p)
     # beta1(p) = m1$coef[2,1] + m1$coef[2,2]*qnorm(p)
-
+  \donttest{
   # a basis b(p) = (1, p), i.e., beta(p) is assumed to be a linear function of p
   m2 <- iqr(y ~ x, formula.p = ~ p)
 
@@ -171,8 +203,8 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   summary(m1, p = c(0.25,0.5,0.75))
   test.fit(m1)
   par(mfrow = c(1,2)); plot(m1, ask = FALSE)
-  # see the documentation for 'summary.iqr', 'test.fit', and 'plot.iqr'
-
+  # see the documentation for 'summary.iqr', 'test.fit.iqr', and 'plot.iqr'
+  }
 
 
 
@@ -195,7 +227,7 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   iqr(y ~ x, formula.p = ~ I(qnorm(p)) + I(log(p)), s = s)
 
 
-
+  \donttest{
 
   ##### Example 3 ### excluding coefficients when b(p) is singular
   
@@ -278,7 +310,7 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   # first column of coefficients: (beta0, beta1)
   # top-right coefficient: residual standard deviation
   
-
+  }
 
 
   ##### Example 8 ### censored data

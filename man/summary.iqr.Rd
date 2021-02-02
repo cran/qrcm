@@ -47,7 +47,7 @@ order of the quantile. See \sQuote{Examples}.}
 \item{se}{the estimated standard errors.}
 \item{test.x}{Wald test for the covariates. Each \emph{row} of \code{coefficients} is tested for nullity.}
 \item{test.p}{Wald test for the building blocks of the quantile function. Each \emph{column} of \code{coefficients} is tested for nullity.}
-\item{obj.function}{the minimized loss function (\kbd{NULL} if the data are censored or truncated.}
+\item{obj.function}{the minimized loss function (\kbd{NULL} if the data are censored or truncated).}
 \item{call}{the matched call.}
 }
 \author{
@@ -55,12 +55,12 @@ Paolo Frumento \email{paolo.frumento@unipi.it}
 }
 \seealso{
 \code{\link{iqr}}, for model fitting; \code{\link{predict.iqr}} and \code{\link{plot.iqr}},
-for predicting and plotting objects of class \dQuote{\code{iqr}}. \code{\link{test.fit}}
+for predicting and plotting objects of class \dQuote{\code{iqr}}. \code{\link{test.fit.iqr}}
 for a goodness-of-fit test.
 }
 \note{
 In version 1.0 of the package, a chi-squared goodness-of-fit test was provided.
-The test appeared to be very unreliable and has now been removed. Use \code{test.fit}.
+The test appeared to be unreliable and has been removed from the subsequent versions. Use \code{test.fit}.
 }
 \examples{
 

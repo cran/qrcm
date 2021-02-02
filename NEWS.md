@@ -1,10 +1,18 @@
-qrcm 2.2
+qrcm 3.0
 =============
 
-Changes with respect to version 2.1
+Changes with respect to version 2.2
 ------------------
-* bug fixed. Replaced class(obj) == "try-error" with inherits(obj, "try-error")
-* Replaced pch:::fun with fun <- getFromNamespace(fun, ns = "pch"), added getFromNamespace to imports
-* require pch >= 1.4
-* updated my e-mail address
-* updated reference to Frumento and Bottai (2017) with issue and page numbers
+
+* bug with survival 2.41 fixed in a better way (timefix = FALSE).
+* added new function: iqrL and associated auxiliary functions
+* renamed internal functions
+* defined a test.fit method. Allow R = 0.
+* improved starting points, better estimation of Jacobian and outer product
+* handling of potentially discrete data in start.iqr and trans
+* fixed warnings with PDF < 0, and wrong definition of covar.ok
+* fixed predict (contrasts)
+* fixed plf with scalar input
+* new dependency pch >= 2.0
+* functions for quantile crossing
+* added obj.function for censored and truncated data
