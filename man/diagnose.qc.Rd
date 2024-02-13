@@ -35,7 +35,7 @@ A list with the following items:
 If no quantile crossing is detected, \code{pcross = NULL}, and \code{crossIndex = 0}. 
 }
 \references{
-Sottile, G., and Frumento, P. (2021). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling [forthcoming].
+Sottile, G., and Frumento, P. (2023). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling, 23(2), 173-195.
 }
 \author{
 Paolo Frumento \email{paolo.frumento@unipi.it}

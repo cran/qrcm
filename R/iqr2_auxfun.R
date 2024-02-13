@@ -31,6 +31,8 @@ summary.iqr <- function(object, p, cov = FALSE, ...){
 		out$obj.function <- object$obj.function		
 		out$n <- nrow(object$mf)
 		out$free.par <- sum(object$s != 0)
+		out$type <- attr(attr(object$mf, "type"), "fittype")
+		out$n.events <- attr(object$mf, "n.events")
 	}
 	else{
 		out <- list()
@@ -60,9 +62,23 @@ print.summary.iqr <- function(x, digits = max(3L, getOption("digits") - 3L), ...
 
 		cat("converged:", x$converged, "\n")
 		cat("n. of iterations:", x$n.it, "\n")
+		cat("n. of free parameters:", x$free.par, "\n")
 		cat("n. of observations:", x$n, "\n")
-		cat("n. of free parameters:", x$free.par, "\n\n")
 
+		type <- x$type
+		N <- x$n.events
+		
+		if(type %in% c("ctiqr", "ciqr")){
+		  cat("N. of events: ", paste(deparse(round(N)), sep = " ", collapse = " "), "\n", sep = "")
+		}
+		else if(type == "iciqr"){
+		  cat("* Events: ", paste(deparse(round(N[[2]])), sep = " ", collapse = " "), "\n", sep = "")
+		  cat("* Left-censored: ", paste(deparse(round(N[[3]])), sep = " ", collapse = " "), "\n", sep = "")
+		  cat("* Right-censored: ", paste(deparse(round(N[[1]])), sep = " ", collapse = " "), "\n", sep = "")
+		  cat("* Interval-censored: ", paste(deparse(round(N[[4]])), sep = " ", collapse = " "), "\n", sep = "")
+		}	
+
+		cat("\n")
 		cat("######################", "\n")
 		cat("######################", "\n\n")
 
@@ -188,8 +204,10 @@ plot.iqr <- function(x, conf.int = TRUE, polygon = TRUE, which = NULL, ask = TRU
 				plot(KM$time, KM$cdf, pch = 20, cex = 0.5, 
 				xlim = c(0,1), ylim = c(0,1), 
 				ylab = "U(0,1) quantiles", xlab = "fitted CDF quantiles")
-				points(KM$time, KM$low, pch = ".")
-				points(KM$time, KM$up, pch = ".")
+				if(!is.null(KM$low)){ # there is no CI if the data are IC
+				  points(KM$time, KM$low, pch = ".")
+				  points(KM$time, KM$up, pch = ".")
+				}
 				abline(0,1)
 			}
 		}
@@ -227,23 +245,31 @@ predict.iqr <- function(object, type = c("beta", "CDF", "QF", "sim"), newdata, p
 	nomiss <- (if(is.null(miss)) 1:nrow(mf) else (1:(nrow(mf) + length(miss)))[-miss])
 	xlev <- .getXlevels(mt, mf)
 	contr <- attr(mf, "contrasts")
-
+	
+	if(fittype == "iciqr" && missing(newdata) & type == "CDF")
+	  {stop("with type = 'CDF' and interval-censored data, 'newdata' is always required \n and must include a variable named 'time' at which to compute predictions")}
 	if(!missing(newdata)){
 
 	  if(type == "CDF"){
 	    yn <- as.character(if(fittype == "ctiqr") mt[[2]][[3]] 
-              else if(fittype == "ciqr") mt[[2]][[2]] else mt[[2]])
-	    if(is.na(ind <- match(yn, colnames(newdata))))
-	    {stop("for 'type = CDF', 'newdata' must contain the y-variable")}
+              else if(fittype == "ciqr") mt[[2]][[2]] else if(fittype == "iqr") mt[[2]] else "time")
+	    if(is.na(ind <- match(yn, colnames(newdata)))){
+	      if(fittype == "icqr"){stop("with type = 'CDF' and interval-censored data, 'newdata' is always required \n and must include a variable named 'time' at which to compute predictions")}
+	      else{stop("for 'type = CDF', 'newdata' must contain the y-variable")}
+	    }
+	    
+	    # To have all the variables that WILL appear in all.vars(mt) but are not necessary for prediction
 	    if(fittype == "ciqr"){newdata[,as.character(mt[[2]][[3]])] <- 1}
 	    if(fittype == "ctiqr"){newdata[,as.character(mt[[2]][[4]])] <- 1
               newdata[,as.character(mt[[2]][[2]])] <- -Inf}
+	    if(fittype == "iciqr"){mt <- update(mt, time ~ .)}
 	  }
 		else{mt <- delete.response(mt)}
 		if(any(is.na(match(all.vars(mt), colnames(newdata)))))
 			{stop("'newdata' must contain all x-variables")}
 
 		mf <- model.frame(mt, data = newdata, xlev = xlev)
+
 		if(nrow(mf) == 0){
 			nr <- nrow(newdata)
 			if(type == "CDF"){
@@ -345,6 +371,29 @@ print.iqr <- function (x, digits = max(3L, getOption("digits") - 3L), ...){
 	cat("\nCall:\n", paste(deparse(x$call), sep = "\n", collapse = "\n"), 
 	"\n\n", sep = "")
 
+  
+  #####
+  
+  cat("\n")
+  cat("Number of free parameters:", sum(x$s), "\n")
+  cat("Number of observations:", nrow(x$mf), "\n")
+
+  type <- attr(attr(x$mf, "type"), "fittype")
+  N <- attr(x$mf, "n.events")
+  if(type %in% c("ctiqr", "ciqr")){
+    cat("N. of events: ", paste(deparse(round(N)), sep = " ", collapse = " "), "\n", sep = "")
+  }
+  else if(type == "iciqr"){
+    cat("* Events: ", paste(deparse(round(N[[2]])), sep = " ", collapse = " "), "\n", sep = "")
+    cat("* Left-censored: ", paste(deparse(round(N[[3]])), sep = " ", collapse = " "), "\n", sep = "")
+    cat("* Right-censored: ", paste(deparse(round(N[[1]])), sep = " ", collapse = " "), "\n", sep = "")
+    cat("* Interval-censored: ", paste(deparse(round(N[[4]])), sep = " ", collapse = " "), "\n", sep = "")
+  }
+  
+  
+  #####
+  
+  cat("\n")
 	cat("Coefficients:\n")
 	print.default(format(coef(x), digits = digits), print.gap = 2L, quote = FALSE)
 

@@ -33,7 +33,7 @@ reporting the Kolmogorov-Smirnov statistic (evaluated on a grid)
 and the associated p-value.
 }
 \references{
-Frumento, P., Bottai, M., and Fernandez-Val, I. (2021). \emph{Parametric modeling of quantile regression coefficient functions with longitudinal data}. Journal of the American Statistical Association [forthcoming].
+Frumento, P., Bottai, M., and Fernandez-Val, I. (2021). \emph{Parametric modeling of quantile regression coefficient functions with longitudinal data}. Journal of the American Statistical Association, 116 (534), 783-797.
 }
 \author{
 Paolo Frumento \email{paolo.frumento@unipi.it}

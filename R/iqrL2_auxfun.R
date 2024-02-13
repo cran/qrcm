@@ -316,11 +316,11 @@ predict.iqrL <- function(object, level, type = c("coef", "CDF", "QF", "sim"), ne
 	o <- object
 	if(level == 1){oo <- list(mf = o$mf.theta, coefficients = o$theta, covar = o$covar.theta, y = o$fit$y_alpha)}
 	else{oo <- list(mf = o$mf.phi, coefficients = o$phi, covar = o$covar.phi, y = o$fit$alpha[!duplicated(o$fit$id)])}
-	predict.iqrL.internal(oo, level = level, type = type, newdata = newdata, p = p, se = se)
+	predict_iqrL.internal(oo, level = level, type = type, newdata = newdata, p = p, se = se)
 }
 
 # slightly different from qrcm::predict.iqr
-predict.iqrL.internal <- function(object, level, type = c("coef", "CDF", "QF", "sim"), newdata, p, se = FALSE, ...){
+predict_iqrL.internal <- function(object, level, type = c("coef", "CDF", "QF", "sim"), newdata, p, se = FALSE, ...){
 
 	pname <- (if(level == 1) "u" else "v")
 	coename <- (if(level == 1) "beta" else "gamma")

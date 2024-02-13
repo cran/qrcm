@@ -4,9 +4,7 @@
 Quantile Regression Coefficients Modeling
 }
 \description{
-This function implements Frumento and Bottai's (2016, 2017) methods for quantile regression
-coefficients modeling (qrcm). Quantile regression coefficients are described
-by (flexible) parametric functions of the order of the quantile. Quantile crossing can be eliminated using the method described in Sottile and Frumento (2021).
+This function implements Frumento and Bottai's (2016, 2017) and Hsu, Wen, and Chen's (2021) methods for quantile regression coefficients modeling (qrcm). Quantile regression coefficients are described by (flexible) parametric functions of the order of the quantile. Quantile crossing can be eliminated using the method described in Sottile and Frumento (2023).
 }
 \usage{
 iqr(formula, formula.p = ~ slp(p,3), weights, data, s, 
@@ -16,8 +14,11 @@ iqr(formula, formula.p = ~ slp(p,3), weights, data, s,
   \item{formula}{
     a two-sided formula of the form \code{y ~ x1 + x2 + \ldots}: 
     a symbolic description of the quantile regression model. The left side of the formula
-    is \code{Surv(time,event)} if the data are right-censored, and \code{Surv(time,time2,event)}
-    if the data are right-censored and left-truncated (\code{time < time2}, \code{time} can be \kbd{-Inf}).
+    is \code{Surv(time,event)} if the data are right-censored; \code{Surv(time,time2,event)}
+    if the data are right-censored and left-truncated (\code{time < time2}, \code{time} can be \kbd{-Inf});
+    and \code{Surv(time1, time2, type = "interval2")} for interval-censored data (use \code{time1 = time2} 
+    for exact observations, \code{time1 = -Inf} or \code{NA} for left-censored, 
+    and \code{time2 = Inf} or \code{NA} for right-censored).
   }
   \item{formula.p}{
     a one-sided formula of the form \code{~ b1(p, \ldots) + b2(p, \ldots) + \ldots}, describing how 
@@ -74,9 +75,10 @@ iqr(formula, formula.p = ~ slp(p,3), weights, data, s,
   by minimizing an objective function that corresponds 
   to the integral, with respect to \eqn{p}, of the loss function of standard quantile regression. 
   Details are in Frumento and Bottai (2016). If the data are censored or truncated, instead,
-  \eqn{\theta} is estimated by solving the estimating equations described in Frumento and Bottai (2017).
+  \eqn{\theta} is estimated by solving the estimating equations described in Frumento and Bottai (2017)
+  and Hsu, Wen, and Chen (2021).
 
-  The option \code{remove.qc} applies the method described by Sottile and Frumento (2021) 
+  The option \code{remove.qc} applies the method described by Sottile and Frumento (2023) 
   to remove quantile crossing. You can either choose \code{remove.qc = TRUE}, or use
   \code{remove.qc = qc.control(...)}, which allows to specify the operational parameters
   of the algorithm. Please read \code{\link{qc.control}} for more details on the method,
@@ -102,11 +104,18 @@ The generic accessory functions \code{coefficients}, \code{formula}, \code{terms
 \code{\link{diagnose.qc}} can be used to diagnose quantile crossing.
 }
 \references{
-Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), pp 74-84, doi: 10.1111/biom.12410.
+Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), 74-84.
 
-Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, doi: 10.1111/biom.12675.
+Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, 73 (4), 1179-1188.
 
-Sottile, G., and Frumento, P. (2021). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling [forthcoming].
+Frumento, P., and Salvati, N. (2021). \emph{Parametric modeling of quantile regression coefficient functions with count data}. Statistical Methods and Applications, 30, 1237-1258.
+
+Hsu, C.Y., Wen, C.C., and Chen, Y.H. (2021). \emph{Quantile function regression analysis for interval censored data, with application to salary survey data}. Japanese Journal of Statistics and Data Science, 4, 999-1018.
+
+Sottile, G., and Frumento, P. (2023). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling, 23 (2), 173-195.
+
+Frumento, P., and Corsini, L. (2024). \emph{Using parametric quantile regression
+to investigate determinants of unemployment duration}. Unpublished manuscript.
 }
 \author{
 Paolo Frumento \email{paolo.frumento@unipi.it}
@@ -115,8 +124,8 @@ Paolo Frumento \email{paolo.frumento@unipi.it}
 
   \strong{NOTE 1 (\kbd{PDF}, \kbd{CDF}, quantile crossing, and goodness-of-fit).} 
   By expressing quantile regression coefficients as functions of \eqn{p}, you practically specify 
-  a parametric model for the entire conditional distribution. The induced \kbd{CDF} is the value \eqn{p*}
-  such that \eqn{y = Q(p* | x)}. The corresponding \kbd{PDF} is given by \eqn{1/Q'(p* | x)}.
+  a parametric model for the entire conditional distribution. The induced \kbd{CDF} is the value \eqn{p^*}
+  such that \eqn{y = Q(p^* | x)}. The corresponding \kbd{PDF} is given by \eqn{1/Q'(p^* | x)}.
   Negative values of \code{PDF} indicate quantile crossing, occurring when the estimated quantile function is not
   monotonically increasing. If negative \code{PDF} values occur for a relatively large proportion of data, 
   the model is probably misspecified or ill-defined.
@@ -146,12 +155,12 @@ Paolo Frumento \email{paolo.frumento@unipi.it}
   is simply the integral of \eqn{L(\beta(p | \theta))} with respect to \eqn{p}.
   
   If the data are censored and truncated, \eqn{\omega} is replaced by
-  \deqn{\omega* = \omega.y + (1 - d)\omega.y(p - 1)/S.y - \omega.z - \omega.z(p - 1)/S.z + p}
+  \deqn{\omega^* = \omega.y + (1 - d)\omega.y(p - 1)/S.y - \omega.z - \omega.z(p - 1)/S.z + p}
   where \eqn{\omega.y = I(y \le x'\beta(p))}, \eqn{\omega.z = I(z \le x'\beta(p))}, \eqn{S.y = P(T > y)},
   and \eqn{S.z = P(T > z)}. 
   The above formula can be obtained from equation (7) of Frumento and Bottai, 2017. 
-  Replacing \eqn{\omega} with \eqn{\omega*} in \eqn{L(\beta(p))} is \strong{NOT} equivalent 
-  to replacing \eqn{\omega} with \eqn{\omega*} in \eqn{S(\beta(p))}.
+  Replacing \eqn{\omega} with \eqn{\omega^*} in \eqn{L(\beta(p))} is \strong{NOT} equivalent 
+  to replacing \eqn{\omega} with \eqn{\omega^*} in \eqn{S(\beta(p))}.
   % Note to myself: I am totally sure of this! The two functions L(omega = omega*) and S(omega = omega*) 
   % are NOT the derivative of each other, and do NOT generate the same solution, not even asymptotically.
   The latter option leads to a much simpler computation, and generates the estimating 
@@ -159,6 +168,8 @@ Paolo Frumento \email{paolo.frumento@unipi.it}
   the \kbd{obj.function} returned by \command{iqr} is \strong{NOT} the objective function being
   minimized, and should not be used to compare models. However, if one of two models has a much larger
   value of the \kbd{obj.function}, this may be a sign of severe misspecification or poor convergence.
+  
+  If the data are interval-censored, the loss function is obtained as the average between the loss calculated on the lower end of the interval, and that calculated on the upper end. The presence of right- or left-censored observations is handled as described above.
 }
 \seealso{
 \code{\link{summary.iqr}}, \code{\link{plot.iqr}}, \code{\link{predict.iqr}},
@@ -313,6 +324,8 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   }
 
 
+
+
   ##### Example 8 ### censored data
   
   n <- 1000
@@ -335,6 +348,24 @@ to be a piecewise linear function and a shifted Legendre polynomial basis, respe
   z <- z[w]; y <- y[w]; d <- d[w]; x <- x[w]
 
   iqr(Surv(z,y,d) ~ x, formula.p = ~ I(log(1 - p)))
+  
+  
+  
+  
+  ##### Example 9 ### interval-censored data
+  # (with a very naif data-generating process)
+  
+  n <- 1000
+  x <- runif(n,0,5)
+	
+  u <- runif(n)
+  beta0 <- 10*u + 20*u^2
+  beta1 <- 10*u
+  t <- beta0 + beta1*x  # time variable
+  time1 <- floor(t)     # lower bound
+  time2 <- ceiling(t)    # upper bound
+  iqr(Surv(time1, time2, type = "interval2") ~ x, formula.p = ~ -1 + p + I(p^2))
+  
 }
 \keyword{models}
 \keyword{regression}

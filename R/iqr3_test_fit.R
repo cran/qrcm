@@ -2,7 +2,7 @@
 
 
 #' @export
-test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
+test.fit.iqr <- function(object, R = 100, zcmodel, icmodel, trace = FALSE, ...){
   
   mf <- object$mf
   s <- object$s
@@ -12,9 +12,9 @@ test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
   theta <- attr(mf, "theta")
   theta2 <- object$coef
   Q0 <- attr(mf, "Q0"); chi0 <- qchisq(0.999, df = sum(s))
-
+  
   statsy <- attr(object$mf, "stats")$y
-  M <- 10/(statsy$M - statsy$m)
+  M <- 10/(statsy$M - statsy$m); m <- statsy$m
   V <- attr(mf, "all.vars"); U <- attr(mf, "all.vars.unscaled")
   x <- V$X; xw <- V$Xw; y <- V$y; z <- V$z0; d <- V$d; w <- V$weights; x2 <- U$X
   CDFs <- attr(mf, "CDFs")
@@ -22,7 +22,7 @@ test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
   q <- ncol(x)
   rho <- rep.int(1,n)
   maxit <- 10 + 2*sum(s)
-
+  
   if(type == "ciqr"){
     Tc <- trans(z = -Inf, y = y, d = 1 - d, w = w, type = type)
     dat <- data.frame(z = -Inf, y = Tc$f(y), d = 1 - d, x = x)
@@ -31,29 +31,79 @@ test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
   else if(type == "ctiqr"){
     minz <- min(z[z != -Inf])
     z <- pmax(z, minz)
+    if(missing(zcmodel)){stop("Please select the 'zcmodel' (see ?test.fit.iqr for support)")}
     if(zcmodel == 1){u <- y - z; zz <- rep.int(0,n)}
     else if(zcmodel == 2){u <- y; zz <- z}
     else{stop("invalid 'zcmodel'")}
-
-
+    
+    
     Tz <- trans(z = -y, y = -z, d = rep.int(1,n), w = w, type = type)
     Tc <- trans(z = zz, y = u, d = 1 - d, w = w, type = type)
-
+    
     dat.z <- data.frame(z = Tz$f(-y), y = Tz$f(-z), d = 1, x = x)
     dat.c <- data.frame(z = Tc$f(zz), y = Tc$f(u), d = 1 - d, x = x)
-
+    
     # this should NOT happen. But sometimes it does, as the spline is not perfectly monotone
     dat.z$z[dat.z$z >= dat.z$y] <- -Inf 
     dat.c$z[dat.c$z >= dat.c$y] <- -Inf
-
+    
     mz <- findagoodestimator(dat.z,w)
     mc <- findagoodestimator(dat.c,w)
-
+    
     alphax <- alpha(object, mz,mc, zcmodel = zcmodel, Tc = Tc, Tz = Tz) # pr(Y > Z | x)
     N <- round(n/mean(alphax)) # n. of observations to sample in order to obtain n final obs.
     rho <- 1/alphax # inclusion probability of each obs.
   }
+  else if(type == "iciqr"){
+    
+    if(missing(icmodel)){stop("Please define the 'icmodel' (see ?test.fit.iqr for support)")}
+    if(!inherits(icmodel, "list")){stop("'icmodel' must be a list")}
+    if(any(is.na(match(c("model", "t0", "logscale"), names(icmodel)))))
+      {stop("'icmodel' must include items 'model', 't0', 'logscale' and, optionally, 'lambda'")}
+    model <- icmodel$model[1]
+    t0 <- icmodel$t0[1]
+    logscale <- icmodel$logscale[1]
+    lambda <- icmodel$lambda
+    if(!(model %in% c("exponential", "constant"))){stop("'model' must be either 'exponential' or 'constant'")}
+    if(!(t0 %in% -1:1)){stop("'t0' must be one of the following: -1, 0, 1")}
+    if(!(logscale %in% c(TRUE, FALSE))){stop("'logscale' must be a logical scalar TRUE or FALSE")}
+    if(!(length(lambda) %in% c(0,1,n))){stop("'lambda' can either be a scalar, or a vector of n elements, where 'n' is the actual number of observations used by the model")}
+    random <- (model == "exponential")
+    ictrans <- (if(!logscale) list(f = I, finv = I) else list(f = exp, finv = log))
 
+    y <- (if(!logscale) V$y else exp(U$y)) # if I work on the log scale, I use the unscaled exp(response)
+    yL <- y[,1]; yR <- y[,2]
+    
+    # Is there left/right censoring?
+    isLC <- any(LC <- (V$y[,1] == -Inf))
+    isRC <- any(RC <- (V$y[,2] == Inf))
+    notLC <- !LC; notRC <- !RC; notCens <- (notLC & notRC)
+    if(t0 != 1 & isLC){warning("As left censoring is present in the data, it is more realistic to set icmodel$t0 = 1")}
+    
+ 
+    # Fit model to Delta = R - L (model = exponential), or just use the mean time between visits (model = constant)
+    if(islambda <- !is.null(lambda)){
+      if(!logscale){lambda <- lambda*M}
+      if(random){lambda <- 1/lambda}  # I assume the user supplied the mean time between visits, not the rate.
+      if(length(lambda) == 1){lambda <- rep.int(lambda,n)}
+    }
+    else{
+      if(random){lambda <- fitgamma(y, x, w)}
+      else{lambda <- mean((yR - pmax(0,yL))[notRC]); lambda <- rep.int(lambda, n)}
+      if(t0 == -1){if(random){lambda <- 2*lambda} else {lambda <- lambda/2}} 
+      # if t0 = -1, it means that both the onset and the event are interval-censored. 
+      # The size of the interval is then the distance between TWO visits.
+    }
+
+    # Fit model to the right-censoring variable
+    if(isRC){
+      Cr <- yR; Cr[RC] <- yL[RC]
+      TCr <- trans(z = NA, y = Cr, d = RC, w = w, type = "ciqr")
+      dat <- data.frame(z = -Inf, y = TCr$f(Cr),  d = RC, x = x)
+      mCr <- findagoodestimator(dat,w, type = "ciqr")
+    }
+  }
+  
   exclude <- (if(type == "iqr") 0 else 0.02)
   test0 <- test.unif.ct(z = CDFs$CDF.z, y = CDFs$CDF.y, d = d, w = w, type = type, exclude)
   if(R == 0){
@@ -65,13 +115,13 @@ test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
   
   
   test <- matrix(,R,2)
-
+  
   if(trace){pb <- txtProgressBar(min = 0, max = R, style = 3)}
   
   for(b in 1:R){
     
     if(trace){setTxtProgressBar(pb, b)}
-
+    
     # x
     
     id <- sample.int(n, size = N, replace = TRUE, prob = rho)
@@ -82,8 +132,8 @@ test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
     
     # t
     beta <- tcrossprod(apply_bfun(bfun2, runif(N), "bfun"), theta2)
-    tb <- yb <- (.rowSums(beta*x2b, N, q) - statsy$m)*M
-    
+    if(type != "iciqr"){tb <- yb <- (.rowSums(beta*x2b, N, q) - m)*M}
+    else{tb <- (if(logscale) exp(.rowSums(beta*x2b, N, q)) else (.rowSums(beta*x2b, N, q) - m)*M)}
     
     # z,c,y,d
     sim.pch <- getFromNamespace("sim.pch", ns = "pch")
@@ -93,7 +143,7 @@ test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
       yb <- pmin(cb, tb)
       db <- (tb <= cb)
     }
-    if(type == "ctiqr"){
+    else if(type == "ctiqr"){
       zb <- sim.pch(mz, x = mz$x[id,,drop = FALSE], method = "s")
       zb <- Tz$finv(zb)
       zb <- (minz - zb + abs(minz + zb))/2 # pmax(-zb, minz)
@@ -105,24 +155,78 @@ test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
       nb <- length(obs <- which(yb > zb))
       yb <- yb[obs]; zb <- zb[obs]; wb <- wb[obs]; db <- db[obs]
       xb <- xb[obs,, drop = FALSE]; xwb <- xwb[obs,, drop = FALSE]
-
+      
       bfun$BB1 <- t(matrix(bfun$BB1[1,], ncol(bfun$BB1), nb))
     }
-    
+    else if(type == "iciqr"){
+
+      lambdab <- lambda[id]
+      Crb <- (if(isRC && !is.null(mCr)) TCr$finv(sim.pch(mCr, x = mCr$x[id,,drop = FALSE], method = "q")) else rep.int(Inf, n))
+      if(random){visit0 <- (if(t0 == 1) rexp(n, lambdab) else if(t0 == 0) rep.int(0,n) else -rgamma(n, shape = 5, scale = 1/lambdab))}
+      else{visit0 <- (if(t0 == 1) rexp(n, 1/lambdab) else if(t0 == 0) rep.int(0,n) else -rgamma(n, shape = 5, scale = lambdab))}
+      # If the visits start BEFORE t = 0, I choose visit0 to be the (negative) sum of 5 exponential random variables.
+      # If the time between visits is constant, I still use the same method to generate the first visit. Note that, in this case,
+      # lambda is the rate and not the scale of the exponential.
+      
+      
+      ok <- yLb <- yRb <- rep.int(FALSE, n)
+      
+      # Left censoring
+      if(t0 == 1){
+      LCflag <- which(visit0 > tb)
+      yLb[LCflag] <- 0
+      yRb[LCflag] <- visit0[LCflag]
+      ok[LCflag] <- TRUE
+      }
+
+      while(any(!ok)){
+
+        if(random){visit1 <- visit0 + rexp(n, lambdab)}
+        else{visit1 <- visit0 + lambdab}
+
+        # Right censoring
+        if(isRC){
+        RCflag <- which(!ok & visit1 > Crb)
+        yLb[RCflag] <- visit0[RCflag]
+        yRb[RCflag] <- Inf
+        ok[RCflag] <- TRUE
+        }
+
+        ok.now <- (!ok & (visit0 <= tb & visit1 >= tb))
+        ok <- (ok | ok.now)
+        ok.now <- which(ok.now)
+        yLb[ok.now] <- visit0[ok.now]
+        yRb[ok.now] <- visit1[ok.now]
+        visit0 <- visit1
+      }
+
+      if(t0 == -1){
+        if(random){yLb <- pmax0(yLb - rexp(n, lambdab)); yRb <- yRb + rexp(n, lambdab)}
+        else{yLb <- pmax0(yLb); yRb <- yRb + lambdab}
+      }
+
+      yLb <- ictrans$finv(yLb)
+      yRb <- ictrans$finv(yRb)
+      
+      alarm <- (!is.finite(yLb) & !is.finite(yRb))
+      yLb[alarm] <- yRb[alarm] <- ictrans$finv(tb)[alarm] # Replace with exact observation (other ideas?)
+      if(logscale){yLb <- (yLb - m)*M; yRb <- (yRb - m)*M}
+      yb <- cbind(yLb, yRb); zb <- -Inf; db <- 1
+    }
+ 
     # fit the model. Use small eps0: the starting points are generally less good than
     # those from start.theta!
-   
+    
     eps0 <- 0.001
     eeTol <- 1
     safeit <- 5
     chitol <- 1.5
-
-    for(i in 1:5){
-      
-      fit.b <- iqr.newton(theta = theta, y = yb, z = zb, d = db, X = xb, Xw = xwb, 
-                        bfun = bfun, s = s, type = type, 
-                        maxit = maxit, tol = 1e-6, safeit = safeit, eps0 = eps0)
     
+    for(i in 1:5){
+      fit.b <- iqr.newton(theta = theta, y = yb, z = zb, d = db, X = xb, Xw = xwb, 
+        bfun = bfun, s = s, type = type, 
+        maxit = maxit, tol = 1e-6, safeit = safeit, eps0 = eps0)
+      
       thetadiff <- c(theta - fit.b$coef)[c(s == 1)]
       chi <- t(thetadiff)%*%Q0%*%cbind(thetadiff)
       
@@ -136,25 +240,24 @@ test.fit.iqr <- function(object, R = 100, zcmodel = 1, trace = FALSE, ...){
       safeit <- safeit + 2
       chitol <- chitol*2
     }
-
+    
     if(fit.ok){
       test[b,] <- test.unif.ct(z = fit.b$pz, y = fit.b$py, 
-          d = db, w = wb, type = type, exclude)
+        d = db, w = wb, type = type, exclude)
     }
   }
   if(trace){close(pb)}
-
+  
   out <- cbind(test0*c(1,sum(w)), 
-    c(
-      mean(test[,1] >= test0[1], na.rm = TRUE), 
-      mean(test[,2] >= test0[2], na.rm = TRUE)
-    ))
+               c(
+                 mean(test[,1] >= test0[1], na.rm = TRUE), 
+                 mean(test[,2] >= test0[2], na.rm = TRUE)
+               ))
   rownames(out) <- c("Kolmogorov-Smirnov", "Cramer-Von Mises")
   colnames(out) <- c("statistic", "p-value")
-
+  
   out
 }
-
 
 
 
@@ -176,10 +279,16 @@ km <- function(z,y,d,w, type, exclude = NULL){
   
     if(type == "iqr"){m <- survfit(Surv(y, rep.int(1,length(y))) ~ 1, weights = w)}
     else if(type == "ciqr"){m <- survfit(Surv(y,d) ~ 1, weights = w)}
+    else if(type == "ctiqr"){m <- survfit(coxph(Surv(z,y,d) ~ 1, weights = pmax(w,1e-6), timefix = FALSE), type = "kaplan-meier")}
     else{
-      m <- survfit(coxph(Surv(z,y,d) ~ 1, weights = pmax(w,1e-6), timefix = FALSE), type = "kaplan-meier")
+      y <- data.frame(L = z, R = y)
+      m <- icenReg::ic_np(cbind(L,R) ~ 0, data = y, weights = w)
+      surv <- (249:1)/250
+      time <- icenReg::getFitEsts(m, p = 1 - surv)
+      m <- list(time = time, surv = surv, n.event = 1, lower = NA, upper = NA)
+      exclude <- NULL
     }
-
+    
     out <- data.frame(time = m$time, cdf = 1 - m$surv, n.event = m$n.event, 
       low = 1 - m$upper, up = 1 - m$lower)
     out <- out[out$n.event > 1e-6,]
@@ -264,13 +373,14 @@ test.unif.ct <- function(z,y,d,w, type, exclude = 0.05){
 
 # automatically finds a "good" estimator of a CDF. If there is no censoring (or very little censoring) on T,
 # C may be (almost) completely censored. If this happens, I just return NULL.
-findagoodestimator <- function(dat, w){
+findagoodestimator <- function(dat, w, type = "ctiqr"){
   if(sum(dat$d*w)/sum(w) < 0.05){return(NULL)}
 
   
   br <- max(5, min(15, round(nrow(dat)/30/(ncol(dat) - 3))))
-  CDF <- suppressWarnings(pch::pchreg(
-    Surv(z,y,d) ~ ., data = dat, weights = w, splinex = NULL, breaks = br)) 
+  
+  f <- (if(type == "iciqr") formula(Surv(L,R, type = "interval2") ~ .) else formula(Surv(z,y,d) ~ .))
+  CDF <- suppressWarnings(pch::pchreg(f, data = dat, weights = w, breaks = br, splinex = NULL))
 
   fit.ok <- (CDF$conv.status == 0)
   splx <- pch::splinex()
@@ -381,14 +491,16 @@ quickpred <- function(obj, y, type = c("PDF", "SF")){
 trans <- function(z,y,d,w, type){
 
   if(all(d == 0)){return(list(f = I, finv = I))}
-  
+ 
   # smoothing y
-  yy <- sort(unique(y)); m <- length(yy)
+  yy <- sort(unique(y[is.finite(y)])); m <- length(yy) # is.finite is needed for ic data.
   eps <- min(yy[2:m] - yy[1:(m - 1)])/10
   y <- y + (rank(y, ties.method = "first")/length(y)*eps)
-  
+  if(type == "iciqr"){z <- y[,1]; y <- y[,2]}
+
   hatF <- km(z,y,d,w, type, exclude = NULL)
-    
+  RC <- (hatF$time == Inf); hatF$time[RC] <- max(hatF$time[!RC]) + 10 # correction for IC data with RC.
+
   n <- nrow(hatF)
   F0 <- hatF[1,]
   F1 <- hatF[n,]
@@ -412,3 +524,53 @@ trans <- function(z,y,d,w, type){
 
   list(f = f, finv = finv)
 }
+
+
+# If the response is interval-censored, I will pass to "trans" the middle point,
+  # and treat it as a vector of exact observations. The function "middlepoint" does
+  # nothing if "y" is a vector.
+
+middlepoint <- function(y){
+  if(!inherits(y, "matrix")){return(y)}
+  leftC <- which(!is.finite(yL <- y[,1]))
+  rightC <- which(!is.finite(yR <- y[,2]))
+  out <- (yL + yR)/2
+  out[leftC] <- yR[leftC]
+  out[rightC] <- yL[rightC]
+  out
+}
+
+
+
+
+# Assume that all data are interval-censored due to periodic examination.
+# If the time between visits is Exp(lambda), then the width of the intervals is Gamma(shape = 2, scale = 1/lambda).
+fitgamma <- function(y,X,w){
+  
+  loglik.gamma <- function(beta, y, X, w){
+    log.lambda <- X%*%cbind(beta)
+    lambda <- exp(-log.lambda) # actually 1/lambda
+    -sum(w*dgamma(y, shape = 2, scale = lambda, log = TRUE))
+  }
+  
+  ########## X
+  
+  X <- cbind(1,X)
+  vx <- qr(X)
+  selx <- vx$pivot[1:vx$rank]
+  X <- X[, selx, drop = FALSE]
+  
+  ########## y
+  
+  y[,1] <- pmax(y[,1], 0) # if L = -Inf, it means that delta = R - L = R.
+  y <- y[,2] - y[,1]
+  sel <- which(is.finite(y))
+  beta <- c(log(2/mean(y[sel])), rep(0, ncol(X) - 1))
+  beta <- suppressWarnings(nlm(loglik.gamma, beta, y = y[sel], X = X[sel,, drop = FALSE], w = w)$estimate)
+  exp(X%*%cbind(beta))
+}
+
+
+
+
+

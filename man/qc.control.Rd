@@ -4,7 +4,7 @@
 Estimate Non-Crossing Quantile Functions
 }
 \description{
-This function generates a list of arguments to be used as operational parameters for \code{remove.qc} within a call to \code{\link{iqr}}. Additionally, this R documentation page contains a short description of the algorithm, which is presented in details in Sottile and Frumento (2021). 
+This function generates a list of arguments to be used as operational parameters for \code{remove.qc} within a call to \code{\link{iqr}}. Additionally, this R documentation page contains a short description of the algorithm, which is presented in details in Sottile and Frumento (2023). 
 }
 \usage{
 qc.control(maxTry = 25, trace = FALSE, lambda = NULL)
@@ -34,7 +34,7 @@ This method allows for censored or truncated data, that are supported by \comman
 The function performs a sanity check and returns its arguments.
 }
 \references{
-Sottile, G., and Frumento, P. (2021). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling [forthcoming].
+Sottile, G., and Frumento, P. (2023). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling, 23(2), 173-195.
 }
 \author{
 Paolo Frumento \email{paolo.frumento@unipi.it}

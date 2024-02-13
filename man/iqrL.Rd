@@ -22,7 +22,7 @@ iqrL(fx, fu = ~ slp(u,3), fz = ~ 1, fv = ~ -1 + I(qnorm(v)),
 }
 \details{
  
-  New users are recommended to read Frumento and Bottai's (2018) paper for details
+  New users are recommended to read Frumento and Bottai's (2016) paper for details
   on notation and modeling, and to have some familiarity with the 
   \code{\link{iqr}} command, of which \command{iqrL} is a natural expansion.
 
@@ -87,7 +87,9 @@ for summary information, plotting, and predictions from the fitted model. The fu
 The generic accessory functions \code{coefficients}, \code{formula}, \code{terms}, \code{model.matrix}, \code{vcov} are available to extract information from the fitted model.
 }
 \references{
-Frumento, P., Bottai, M., and Fernandez-Val, I. (2021). \emph{Parametric modeling of quantile regression coefficient functions with longitudinal data}. Journal of the American Statistical Association [forthcoming].
+Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regression coefficient functions}. Biometrics, 72 (1), 74-84.
+
+Frumento, P., Bottai, M., and Fernandez-Val, I. (2021). \emph{Parametric modeling of quantile regression coefficient functions with longitudinal data}. Journal of the American Statistical Association, 116 (534), 783-797.
 }
 
 \author{

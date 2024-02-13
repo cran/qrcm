@@ -1,10 +1,14 @@
-#' @importFrom stats integrate splinefun model.response model.weights model.matrix terms model.frame delete.response coef pnorm qchisq median
-#' @importFrom stats approxfun sd prcomp lm.wfit pchisq weighted.mean printCoefmat .getXlevels pchisq runif vcov nobs predict pbeta qbeta
+#' @importFrom stats model.response model.weights model.matrix terms model.frame delete.response coef 
+#' @importFrom stats printCoefmat .getXlevels vcov nobs predict formula update
+#' @importFrom stats pbeta qbeta dgamma rgamma rexp pchisq qchisq runif pnorm  
+#' @importFrom stats nlm prcomp approxfun integrate splinefun sd median lm.wfit weighted.mean 
 #' @importFrom survival Surv survfit coxph
 #' @importFrom graphics plot points abline polygon
 #' @importFrom grDevices adjustcolor
 #' @importFrom utils menu setTxtProgressBar txtProgressBar tail getFromNamespace
+#' @importFrom icenReg ic_np getFitEsts
 #' @import pch
+
 
 
 

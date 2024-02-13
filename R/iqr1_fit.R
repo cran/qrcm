@@ -68,6 +68,7 @@ check.in.iqr <- function(mf, formula.p, s){
 	zyd <- model.response(mf)
 	type <- attributes(zyd)$type
 	zyd <- cbind(zyd)
+	convert.Surv <- getFromNamespace("convert.Surv", ns = "pch")
 
 	if(is.null(type)){y <- zyd[,1]; z <- rep.int(-Inf,n); d <- rep.int(1,n); type <- fittype <- "iqr"}
 	else if(type == "right"){
@@ -79,8 +80,14 @@ check.in.iqr <- function(mf, formula.p, s){
 	  z <- zyd[,1]; y <- zyd[,2]; d <- zyd[,3]; type <- fittype <- "ctiqr"
 	  if(all(z < min(y))){type <- (if(any(d == 0)) "ciqr" else "iqr")}
 	}
+	else if(type == "interval"){ # I let y = (L,R), z = -Inf, "d" is not used in practice
+	  y <- convert.Surv(zyd); z <- rep.int(-Inf,n); d <- zyd[,3]; type <- fittype <- "iciqr"
+	}
+	else{stop("only 'right', 'counting', and 'interval2' data are supported")}
+	if(!(any(d %in% c(1,3)))){stop("all observation are censored")}
+	
 	attr(type, "fittype") <- fittype
-	if(!(any(d == 1))){stop("all data are censored")}
+
 
 	# x and b(p)
 
@@ -144,10 +151,9 @@ check.in.iqr <- function(mf, formula.p, s){
 		}
 	}
 	
-	# location-scale statistics for x, b(p), and y
+	# location-scale statistics for x, b(p), and y. The selection is.finite(y) is necessary with interval censoring
 
-	ry <- range(y); my <- ry[1]; My <- ry[2]
-
+	ry <- range(y[is.finite(y)]); my <- ry[1]; My <- ry[2]
 	sX <- apply(X,2,sd); mX <- colMeans(X)
 	intX <- (length((constX <- which(sX == 0 & mX != 0))) > 0)
 	varsX <- which(sX > 0); zeroX <- which(sX == 0 & mX == 0)
@@ -170,7 +176,7 @@ check.in.iqr <- function(mf, formula.p, s){
 
 	if(all(s[, varsB] == 0)){stop("the quantile function must depend on p (wrong specification of 's')")}
 	if(!(theta00 <- ((intX & intB) && s[constX, constB] == 1)))
-		{my <- 0; My <- sd(y)*5; mX <- rep.int(0,q)}
+		{my <- 0; My <- sd(y[is.finite(y)])*5; mX <- rep.int(0,q)}
 	else{for(j in varsX){if(any(s[j,] > s[constX,])){mX[j] <- 0}}}
 	if(!intB | (intB && any(s[,constB] == 0))){mB <- rep.int(0,k)}
 
@@ -319,17 +325,16 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s, remove.qc){
 	if(missing(maxit)){maxit <- 10 + 10*sum(s)}
 	else{maxit <- max(1, maxit)}
 	
-	
 	q <- length(S$X$vars)
 	if(type != "iqr" | q > 0){
-	  Ty <- trans(V$z,V$y,V$d,V$weights, type)
+	  Ty <- trans(V$z, V$y, V$d, V$weights, type = type)
 	  yy <- Ty$f(V$y)
 	  zz <- (if(type == "ctiqr") Ty$f(V$z) else V$z)
 	}
 	else{yy <- zz <- NULL}
 	
 	theta0 <- start.iqr(V$y, V$z, V$d, V$X, V$weights, bfun, 
-	   df = max(5, min(15, round(n/30/(q + 1)))), yy, zz, s = s)
+	   df = max(3, min(10, round(n/100/(q + 1)))), yy, zz, s = s, type)
 	
 	Fit <- NULL
 	fit.ok <- FALSE
@@ -339,7 +344,7 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s, remove.qc){
 	eps0 <- 0.05
 	
 	while(!fit.ok){
-	  
+
 	  try.count <- try.count + 1
 
 		fit <- iqr.newton(theta0, V$y, V$z, V$d, V$X, V$Xw, 
@@ -383,8 +388,10 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s, remove.qc){
 	}
   if(qc.rm){
 	  if(type == "iqr"){loss0 <- iobjfun(fit$coefficients, V$y,V$X, V$weights, bfun, fit$p.star.y)}
-	  else{loss0 <- iobjfun.ct(fit$coefficients, V$z,V$y,V$d,V$X,V$weights, bfun, fit$py, fit$pz, type)}
-    
+	  else if(type != "iciqr"){loss0 <- iobjfun.ct(fit$coefficients, V$z,V$y,V$d,V$X,V$weights, bfun, fit$py, fit$pz, type)}
+    else{loss0 <- iobjfun.ic(fit, V, bfun)}
+    loss0 <- abs(loss0) # totally unnecessary, but you never know...
+
     if(lambda.in <- (!is.null(qcc$lambda))){lambda <- qcc$lambda; qcc$maxTry <- 1}
 	  else{lambda <- 1/abs(pen0$pen)*0.25*loss0} # Initial total penalization = 0.25*loss
 	  
@@ -448,7 +455,8 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s, remove.qc){
 	# minimized loss function
 
 	if(type == "iqr"){obj <- iobjfun(fit$coef, V$y,V$X,V$weights, bfun, fit$p.star.y)}
-	else{obj <- iobjfun.ct(fit$coef, V$z,V$y,V$d,V$X,V$weights, bfun, fit$py, fit$pz, type)}
+	else if(type != "iciqr"){obj <- iobjfun.ct(fit$coef, V$z,V$y,V$d,V$X,V$weights, bfun, fit$py, fit$pz, type)}
+  else{obj <- iobjfun.ic(fit, V, bfun)}
 
 	obj <- obj*(S$y$M - S$y$m)/10
 	attr(obj, "df") <- sum(s)
@@ -458,7 +466,7 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s, remove.qc){
 	# fitted CDFs (for internal use, precision ~ 0.001)
 
 	CDFs <- data.frame(CDF.y = fit$py, 
-	CDF.z = (if(type == "ctiqr") fit$pz else NA))
+	CDF.z = (if(type %in% c("ctiqr", "iciqr")) fit$pz else NA))
 	attr(CDFs, "km") <- km(CDFs$CDF.z, CDFs$CDF.y, V$d, V$weights, type)
 
 	# output
@@ -489,13 +497,36 @@ ctiqr.internal <- function(mf,cl, formula.p, tol = 1e-6, maxit, s, remove.qc){
 	# these two are the extreme of the grid used internally. What happens beyond these
 	# two values is not under control, and for example there could be crossing.
 
-	fit$CDF <- pmin(1 - 2e-6, pmax(2e-6, p.bisec(fit$coef,U$y,U$X,A$bfun)))
-	b1 <- apply_bfun(A$bfun, fit$CDF, "b1fun")
-	fit$PDF <- 1/c(rowSums((U$X%*%fit$coef)*b1))
-	if(any(fit$PDF < 0)){warning("Quantile crossing detected (PDF < 0)")}
-	# fit$PDF[attr(fit$CDF, "out")] <- 0 # removed in v3.0
-	attributes(fit$CDF) <- attributes(fit$PDF) <- list(names = rownames(mf))
+	if(type != "iciqr"){
+	  fit$CDF <- pmin(1 - 2e-6, pmax(2e-6, p.bisec(fit$coef,U$y,U$X,A$bfun)))
+	  b1 <- apply_bfun(A$bfun, fit$CDF, "b1fun")
+	  fit$PDF <- 1/c(rowSums((U$X%*%fit$coef)*b1))
+	  attributes(fit$CDF) <- attributes(fit$PDF) <- list(names = rownames(mf))
+	}
+	else{
+	  CDFL <- pmin(1 - 2e-6, pmax(2e-6, p.bisec(fit$coef,U$y[,1],U$X,A$bfun)))
+	  CDFR <- pmin(1 - 2e-6, pmax(2e-6, p.bisec(fit$coef,U$y[,2],U$X,A$bfun)))
+	  
+	  b1L <- apply_bfun(A$bfun, CDFL, "b1fun")
+	  PDFL <- 1/c(rowSums((U$X%*%fit$coef)*b1L))
+	  b1R <- apply_bfun(A$bfun, CDFR, "b1fun")
+	  PDFR <- 1/c(rowSums((U$X%*%fit$coef)*b1R))
+	  
+	  fit$CDF <- data.frame(left = CDFL, right = CDFR)
+	  fit$PDF <- data.frame(left = PDFL, right = PDFR)
+	  rownames(fit$CDF) <- rownames(fit$PDF) <- rownames(mf)
+	}
 	
+	# N. of events
+
+	if(type == "iqr"){n.events <- n}
+	else if(type %in% c("ctiqr", "ciqr")){n.events <- sum(model.response(mf)[,2 + (type == "ctiqr")])}
+	else if(type == "iciqr"){n.events <- table(factor(model.response(mf)[,3], levels = 0:3))}
+	attr(fit$mf, "n.events") <- n.events
+	
+	###
+	
+	if(any(fit$PDF < 0)){warning("Quantile crossing detected (PDF < 0)")}
 
 	# finish
 
@@ -546,7 +577,7 @@ iobjfun.ct <- function(theta, z,y,d,X,weights, bfun, py, pz, type){
   Sz <- 1 - (if(trunc) matrix(pmin(pz, 1-1e-6), n, r) else 0)
   
   ###########################################################
-  
+
   p <- t(matrix(t(p),r,n))
   dp <- t(matrix(t(dp),r,n))
   pbar <- 1 - p
@@ -556,6 +587,27 @@ iobjfun.ct <- function(theta, z,y,d,X,weights, bfun, py, pz, type){
   loss <- .rowSums(loss*dp, n,r)
   sum(loss)
 }
+
+iobjfun.ic <- function(fit, V, bfun){
+  
+  LC <- (V$y[,1] == -Inf)
+  RC <- (V$y[,2] == Inf)
+  IC <- !(LC | RC)
+  
+  obj.ic.L <- iobjfun(fit$coef, V$y[IC,1],V$X[IC,, drop = FALSE],V$weights[IC], bfun, fit$p.star.z[IC])
+  obj.ic.R <- iobjfun(fit$coef, V$y[IC,2],V$X[IC,, drop = FALSE],V$weights[IC], bfun, fit$p.star.y[IC])
+
+  obj.RC <- obj.LC <- 0
+  if(any(RC)){
+    obj.RC <- iobjfun.ct(fit$coef, NA,V$y[RC,1], rep(0, sum(RC)),V$X[RC,, drop = FALSE],V$weights[RC], bfun, fit$pz[RC], NA, type = "ciqr")
+  }
+  if(any(LC)){ # -y is RC with QF -x*theta*b(1 - p)
+    bfun$bp <- bfun$bp[nrow(bfun$bp):1,, drop = FALSE] # b(1 - p)
+    obj.LC <- iobjfun.ct(-fit$coef, NA,-V$y[LC,2], rep(0, sum(LC)),V$X[LC,, drop = FALSE],V$weights[LC], bfun, 1 - fit$py[LC], NA, type = "ciqr")
+  }
+  (obj.ic.L + obj.ic.R)/2 + obj.RC + obj.LC
+}
+
 
 #############################################################################################################
 #############################################################################################################
@@ -731,21 +783,94 @@ ctiqr.ee <- function(theta, y,z,d,X,Xw, bfun,
 	list(g = g, J = J, B.y = B.y, BB.y = BB.y, B.z = B.z, BB.z = BB.z, py = py, pz = pz, pen = pen)
 }
 
+#############################################################################################################
+#############################################################################################################
+#############################################################################################################
+
+# Interval-censored data.
+# For simplicity, during Newton-Raphson, z = L, y = R, p.star.L = p.star.z, and p.star.R = p.star.y.
+iciqr.ee <- function(theta, y,z,d,X,Xw, bfun, 
+                    p.star.y, p.star.z, J = TRUE, G, i = FALSE, lambda = 0){
+  
+  k <- ncol(theta)
+  n <- nrow(X)
+  BB1 <- bfun$BB1
+  p.star.L <- p.star.z; p.star.R <- p.star.y # Just for notation
+  
+  # Exact observations, or observations with very short interval
+  p.star.L[attr(p.star.L, "out.r")] <- 1022
+  alarm <- which(p.star.L == p.star.R)
+  p.star.R[alarm] <- p.star.R[alarm] + 1
+  
+  if(missing(G)){
+    
+    BBL <- bfun$BBp[p.star.L,, drop = FALSE]
+    BBR <- bfun$BBp[p.star.R,, drop = FALSE]
+    pL <- bfun$p[p.star.L]
+    pR <- bfun$p[p.star.R]
+
+    deltaBB <- BBR - BBL 
+    deltap <- pR - pL
+    S1 <- BB1 - deltaBB/deltap
+    pen <- qc.penalty(theta, X, bfun, lambda, H = FALSE)
+    
+    if(!i){g <- c(crossprod(Xw,S1)) - lambda*pen$gradient}
+    else{g <- NULL; for(h in 1:k){g <- cbind(g,X*S1[,h])}}
+  }
+  else{deltaBB <- G$deltaBB; pL <- G$pL; pR <- G$pR; deltap <- G$deltap; g <- G$g; pen <- G$pen}
+  
+  if(J){
+    
+    BL <- bfun$Bp[p.star.L,, drop = FALSE]
+    BR <- bfun$Bp[p.star.R,, drop = FALSE]
+    bL <- bfun$bp[p.star.L,, drop = FALSE]
+    bR <- bfun$bp[p.star.R,, drop = FALSE]
+    b1L <- bfun$b1p[p.star.L,, drop = FALSE]
+    b1R <- bfun$b1p[p.star.R,, drop = FALSE]
+    
+    fL <- 1/c(.rowSums(tcrossprod(X, t(theta))*b1L, n,k))
+    fL <- pmax0(fL); fL[attr(p.star.L, "out")] <- 0
+    fR <- 1/c(.rowSums(tcrossprod(X, t(theta))*b1R, n,k))
+    fR <- pmax0(fR); fR[attr(p.star.R, "out")] <- 0    
+    
+    gammaL <- bL*fL; gammaR <- bR*fR
+    deltaL <- deltaBB - BL*deltap; deltaR <- deltaBB - BR*deltap
+    
+    Xw <- Xw/deltap^2
+    J <- NULL
+    for(i1 in 1:k){
+      h.temp <- NULL
+      for(i2 in 1:k){h.temp <- cbind(h.temp, crossprod(Xw, X*(gammaR[,i2]*deltaR[,i1] - gammaL[,i2]*deltaL[,i1])))}
+      J <- rbind(J, h.temp)
+    }
+    J <- -J
+    pen <- qc.penalty(theta, X, bfun, lambda, pen = pen, H = TRUE)
+    J <- J - lambda*pen$hessian
+  }
+  list(g = g, J = J, deltaBB = deltaBB, deltap = deltap, pL = pL, pR = pR, pen = pen)
+}
 
 #############################################################################################################
 #############################################################################################################
 #############################################################################################################
 
-
-start.iqr <- function(y,z,d, x, weights, bfun, df, yy, zz, s){
+# I leave (with hashtag) the commands for using pch.fit.ic. 
+ # However, my current judgement is that pch.fit.ct applied to the middlepoint is good enough - and much faster. 
+# I leave a default type ("ctiqr", but could be whatever), to avoid problems with qrcmNP which does not
+  # specify the "type" argument.
+start.iqr <- function(y,z,d, x, weights, bfun, df, yy, zz, s, type = "ctiqr"){
 
 	if(is.null(yy)){p.star <- (rank(y, ties.method = "first") - 0.5)/length(y)}
 	else{
-	  pch.fit.ct <- getFromNamespace("pch.fit.ct", ns = "pch")
+    #	fitfun <- (if(type == "iciqr") "pch.fit.ic" else "pch.fit.ct")
+    #	pch.fit <- getFromNamespace(fitfun, ns = "pch")
+    pch.fit <- getFromNamespace("pch.fit.ct", ns = "pch")
+    if(type == "iciqr"){d <- (yy[,2] < Inf); yy <- middlepoint(yy)}
 	  predF.pch <- getFromNamespace("predF.pch", ns = "pch")
-	  m0 <- suppressWarnings(pch.fit.ct(z = zz, y = yy, d = d, 
-		x = cbind(1,x), w = weights, breaks = df))
-	  p.star <- 1 - predF.pch(m0)[,3]
+	  m0 <- suppressWarnings(pch.fit(z = zz, y = yy, d = d, 
+		  x = cbind(1,x), w = weights, breaks = df))
+	  # p.star <- 1 - predF.pch(m0, y = middlepoint(yy))[,3]
+	  p.star <- 1 - predF.pch(m0, y = yy)[,3]
 	}
 
 	pfun <- attr(bfun, "pfun")
@@ -753,6 +878,8 @@ start.iqr <- function(y,z,d, x, weights, bfun, df, yy, zz, s){
 	b.star <- bfun$bp[match(p.star, bfun$p),]
 	X <- model.matrix(~ -1 + x:b.star)
 	X <- X[, c(s) == 1, drop = FALSE]
+	y <- middlepoint(y)
+	
 	start.ok <- FALSE; restol <- 4
 	while(!start.ok){
 	  
@@ -788,7 +915,8 @@ cov.fun.iqr <- function(theta, y,z,d,X,Xw, weights, bfun,
 
 	if(type == "iqr"){ee <- iqr.ee}
 	else if(type == "ciqr"){ee <- ciqr.ee}
-	else{ee <- ctiqr.ee}
+	else if(type == "ctiqr"){ee <- ctiqr.ee}
+  else{ee <- iciqr.ee}
 	s <- c(s == 1)
 	
 	G.i <- ee(theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = TRUE, i = TRUE)
@@ -832,17 +960,19 @@ cov.fun.iqr <- function(theta, y,z,d,X,Xw, weights, bfun,
 #############################################################################################################
 
 iqr.newton <- function(theta, y,z,d,X,Xw, bfun, s, type, tol, maxit, safeit, eps0, lambda = 0){
- 
+
   if(type == "iqr"){ee <- iqr.ee}
   else if(type == "ciqr"){ee <- ciqr.ee}
-  else{ee <- ctiqr.ee}
+  else if(type == "ctiqr"){ee <- ctiqr.ee}
+  else{ee <- iciqr.ee; z <- y[,1]; y <- y[,2]}
   
   q <- nrow(theta)
   k <- ncol(theta)
   s <- c(s == 1)
-  
+
   p.star.y <- p.bisec.internal(theta, y,X, bfun$bp)
-  if(type == "ctiqr"){p.star.z <- p.bisec.internal(theta, z,X, bfun$bp)}
+  if(type %in% c("ctiqr", "iciqr")){p.star.z <- p.bisec.internal(theta, z,X, bfun$bp)}
+
   G <- ee(theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = FALSE, lambda = lambda)
   pen <- G$pen
   
@@ -865,7 +995,7 @@ iqr.newton <- function(theta, y,z,d,X,Xw, bfun, s, type, tol, maxit, safeit, eps
       new.theta <- theta - delta*eps
       if(max(abs(delta*eps)) < tol){conv <- TRUE; break}
       p.star.y <- p.bisec.internal(new.theta, y,X, bfun$bp)
-      if(type == "ctiqr"){p.star.z <- p.bisec.internal(new.theta, z,X, bfun$bp)}
+      if(type %in% c("ctiqr", "iciqr")){p.star.z <- p.bisec.internal(new.theta, z,X, bfun$bp)}
       G1 <- ee(new.theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = FALSE, lambda = lambda)
       g1 <- G1$g[s]
       cond <- (sum(g1^2) < sum(g^2))
@@ -886,7 +1016,7 @@ iqr.newton <- function(theta, y,z,d,X,Xw, bfun, s, type, tol, maxit, safeit, eps
   eps <- eps*10
   h <- ee(theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = TRUE, G = G, lambda = lambda)$J[s,s, drop = FALSE]
   h <- h + diag(0.0001, nrow(h)) # added in version 3.0
- 
+
   for(i in 1:maxit){
 
     if(conv | max(abs(g)) < tol){break}
@@ -920,7 +1050,7 @@ iqr.newton <- function(theta, y,z,d,X,Xw, bfun, s, type, tol, maxit, safeit, eps
       new.theta <- theta - delta*eps
       if(max(abs(delta*eps)) < tol){conv <- TRUE; break}
       p.star.y <- p.bisec.internal(new.theta, y,X, bfun$bp)
-      if(type == "ctiqr"){p.star.z <- p.bisec.internal(new.theta, z,X, bfun$bp)}
+      if(type %in% c("ctiqr", "iciqr")){p.star.z <- p.bisec.internal(new.theta, z,X, bfun$bp)}
       G1 <- ee(new.theta, y,z,d,X,Xw, bfun, p.star.y, p.star.z, J = FALSE, lambda = lambda)
       g1 <- G1$g[s]
       cond <- (sum(g1^2) < sum(g^2))
@@ -939,7 +1069,7 @@ iqr.newton <- function(theta, y,z,d,X,Xw, bfun, s, type, tol, maxit, safeit, eps
   
   p.star.y <- p.bisec.internal(theta, y,X, bfun$bp)
   py <- bfun$p[p.star.y]
-  if(type == "ctiqr"){
+  if(type %in% c("ctiqr", "iciqr")){
     p.star.z <- p.bisec.internal(theta, z,X, bfun$bp)
     pz <- bfun$p[p.star.z]
     pz <- pmin(pz, py - 1e-8)

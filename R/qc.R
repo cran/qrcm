@@ -2,6 +2,13 @@
 diagnose.qc <- function(obj){
   
   if(!inherits(obj, "iqr")){stop("this function can only be applied to 'iqr' objects")}
+  fittype <- attr(attr(obj$mf, "type"), "fittype")
+  if(fittype == "iciqr"){ # I take pmin(PDF$left, PDF$right) and select CDF accordingly
+    w <- (obj$PDF[,1] > obj$PDF[,2]) + 1
+    w <- cbind(1:length(w), w)
+    obj$PDF <- obj$PDF[w]
+    obj$CDF <- obj$CDF[w]
+  }
   
   bfun <- attr(obj$mf, "internal.bfun")
   X <- attr(obj$mf, "all.vars")$X
@@ -15,7 +22,7 @@ diagnose.qc <- function(obj){
   nsel <- length(sel)
   
   ########################################################################################
-  
+
   if(nsel == 0){
     out <- list(
       qc = data.frame(qc.local = rep.int(FALSE,n), qc.global = rep.int(FALSE,n)),
@@ -32,7 +39,7 @@ diagnose.qc <- function(obj){
   single_p <- (pleft & pright) # where Q'(p) < 0 at a single value of p.
   
   ########################################################################################
-  
+
   # Local and global quantile crossing
   
   qc.global <- rep.int(FALSE, n); qc.global[sel] <- apply(sQ1,1,any)
@@ -58,7 +65,7 @@ diagnose.qc <- function(obj){
   
   # (2) A scale-invariant indicator of how much quantile crossing there is:
   # average proportion of the (0,1) line where quantiles cross
-  
+
   deltap <- pright - pleft # (p+) - (p-)
   crossIndex <- tcrossprod(deltap, t(bfun$p))
   crossIndex <- (sum(crossIndex) + 1e-6*sum(single_p) + 1e-6*sum(undetected.crossing))/n 
@@ -68,10 +75,10 @@ diagnose.qc <- function(obj){
   ########################################################################################
   # output ###############################################################################
   ########################################################################################
-  
+
   qc <- data.frame(qc.local = qc.local, qc.global = qc.global)
   rownames(qc) <- rownames(obj$mf)
-  
+
   out <- list(qc = qc, qc.local = sum(qc$qc.local), qc.global = sum(qc$qc.global), 
     pcross = pcross, crossIndex = crossIndex)
   class(out) <- "qc.iqr"
