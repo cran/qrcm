@@ -114,8 +114,7 @@ Hsu, C.Y., Wen, C.C., and Chen, Y.H. (2021). \emph{Quantile function regression 
 
 Sottile, G., and Frumento, P. (2023). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling, 23 (2), 173-195.
 
-Frumento, P., and Corsini, L. (2024). \emph{Using parametric quantile regression
-to investigate determinants of unemployment duration}. Unpublished manuscript.
+Corsini, L., and Frumento, P. (2025). \emph{Using parametric quantile regression to investigate determinants of unemployment duration}. Unpublished manuscript.
 }
 \author{
 Paolo Frumento \email{paolo.frumento@unipi.it}

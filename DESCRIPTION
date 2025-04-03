@@ -1,9 +1,12 @@
 Package: qrcm
 Type: Package
 Title: Quantile Regression Coefficients Modeling
-Version: 3.1
-Date: 2024-02-13
-Author: Paolo Frumento <paolo.frumento@unipi.it>
+Version: 3.2
+Date: 2025-04-03
+Authors@R: person(given = "Paolo",
+                    family = "Frumento",
+                    role = c("aut", "cre"),
+                    email = "paolo.frumento@unipi.it")
 Maintainer: Paolo Frumento <paolo.frumento@unipi.it>
 Description: Parametric modeling of quantile regression coefficient functions.
 Imports: stats, utils, graphics
@@ -11,6 +14,7 @@ Depends: survival (>= 2.4.1), pch (>= 2.1), icenReg (>= 2.0.15)
 License: GPL-2
 RoxygenNote: 7.2.3
 NeedsCompilation: no
-Packaged: 2024-02-13 10:13:51 UTC; a020554
+Packaged: 2025-04-03 19:19:10 UTC; a020554
+Author: Paolo Frumento [aut, cre]
 Repository: CRAN
-Date/Publication: 2024-02-13 11:00:02 UTC
+Date/Publication: 2025-04-03 19:40:02 UTC

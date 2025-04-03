@@ -35,7 +35,7 @@ Since the fitted \acronym{CDF} values depend on estimated parameters, the distri
 the test statistic is not known. To evaluate it, the model is fitted on \kbd{R} simulated datasets 
 generated under the null hypothesis. 
 
-The testing procedures are described in details by Frumento and Bottai (2016, 2017) and Frumento and Corsini (2024).
+The testing procedures are described in details by Frumento and Bottai (2016, 2017) and Corsini and Frumento (2025).
 
 \bold{Right-censored and left-truncated data}. If the data are censored and truncated, \code{object$CDF} is as well a censored and truncated outcome, and its quantiles must be computed by using a suitable version of Kaplan-Meier product-limit estimator. The fitted survival curve is then compared with that of a \eqn{U(0,1)} distribution. 
 
@@ -95,8 +95,8 @@ Frumento, P., and Bottai, M. (2016). \emph{Parametric modeling of quantile regre
 
 Frumento, P., and Bottai, M. (2017). \emph{Parametric modeling of quantile regression coefficient functions with censored and truncated data}. Biometrics, doi: 10.1111/biom.12675.
 
-Frumento, P., and Corsini, L. (2024). \emph{Using parametric quantile regression
-to investigate determinants of unemployment duration}. Unpublished manuscript.
+Corsini, L., and Frumento, P. (2025). \emph{Using parametric quantile regression to investigate determinants of unemployment duration}. Unpublished manuscript.
+
 }
 \author{
 Paolo Frumento \email{paolo.frumento@unipi.it}

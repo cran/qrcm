@@ -175,9 +175,11 @@ check.in.iqr <- function(mf, formula.p, s){
 	}
 
 	if(all(s[, varsB] == 0)){stop("the quantile function must depend on p (wrong specification of 's')")}
-	if(!(theta00 <- ((intX & intB) && s[constX, constB] == 1)))
-		{my <- 0; My <- sd(y[is.finite(y)])*5; mX <- rep.int(0,q)}
+	if(!(theta00 <- ((intX & intB) && s[constX, constB] == 1))){my <- 0; My <- sd(y[is.finite(y)])*5}
+	
+	if(!intX | (intX & all(s[constX,] == 0))){mX <- rep.int(0,q)}
 	else{for(j in varsX){if(any(s[j,] > s[constX,])){mX[j] <- 0}}}
+	
 	if(!intB | (intB && any(s[,constB] == 0))){mB <- rep.int(0,k)}
 
 	# Create bfun (only used by post-estimation functions)
