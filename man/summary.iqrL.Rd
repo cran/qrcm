@@ -49,6 +49,8 @@ If \kbd{p} is missing (the default), a list with the following items:
 \item{test.col.theta, test.col.phi}{Wald test for the building blocks of the quantile function. Each \emph{column} of \code{theta} and \code{phi} is tested for nullity.}
 \item{obj.function}{the minimized loss function.}
 \item{call}{the matched call.}
+
+If the model is fitted with \kbd{fv = NULL}, i.e., an unpenalized fixed-effects model, \code{level = 2} is not available and the level-2 objects are omitted from the summary.
 }
 \author{
 Paolo Frumento \email{paolo.frumento@unipi.it}

@@ -53,10 +53,16 @@ iqrL(fx, fu = ~ slp(u,3), fz = ~ 1, fv = ~ -1 + I(qnorm(v)),
 
   By default, \kbd{fu = ~ slp(u,3)}, a shifted Legendre's polynomial (see \code{\link{slp}}),
   and the distribution of \eqn{\alpha_i}{\alpha[i]} is assumed to be Normal (\kbd{fv = ~ -1 + I(qnorm(v))})
-  and to not depend on covariates (\kbd{fz = ~ 1}).
+  and to not depend on covariates (\kbd{fz = ~ 1}). 
+  
+  As shown by Frumento et al. (2021), the level-2 part of the model acts as a penalization term that shrinks
+  the estimated fixed effects towards their median. However, if \kbd{fv = NULL}, the level-2 quantile function is not estimated at all
+  (and, consistently, \kbd{fz} is ignored), which is equivalent to fitting an \strong{unpenalized} fixed-effects model.
 
+
+  
   Restrictions on \eqn{\theta} and \eqn{\phi} are imposed by setting to zero the corresponding elements
-  of \kbd{s.theta} and \kbd{s.phi}. 
+  of \kbd{s.theta} and \kbd{s.phi}.
 }
 \value{
 An object of class \dQuote{\code{iqrL}}, a list containing the following items:
@@ -80,6 +86,7 @@ An object of class \dQuote{\code{iqrL}}, a list containing the following items:
   }
   Observations are sorted by increasing \kbd{id} and, within each \kbd{id}, by increasing \kbd{y}.
 }
+If \kbd{fv = NULL}, all the level-2 objects (\kbd{phi}, \kbd{covar.phi}, \kbd{s.phi} and \kbd{fit$v}) are omitted.
 
 Use \code{\link{summary.iqrL}}, \code{\link{plot.iqrL}}, and \code{\link{predict.iqrL}}
 for summary information, plotting, and predictions from the fitted model. The function
@@ -173,6 +180,10 @@ to be piecewise linear functions and shifted Legendre polynomials, respectively.
   s.theta <- rbind(1, 1:0)
   linmod <- iqrL(fx = y ~ x1, fu = ~ I(qnorm(u)), id = id, s.theta = s.theta)
   summary(linmod)
+  
+  ##### To fit unpenalized fixed effects, use fv = NULL:
+  linmod.FE <- iqrL(fx = y ~ x1, fu = ~ I(qnorm(u)), fv = NULL, id = id, s.theta = s.theta)
+  summary(linmod.FE) # no level-2 is estimated
   }
 }
 \keyword{models}

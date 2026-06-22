@@ -31,7 +31,8 @@ interactively which coefficients to plot. Additional options will permit
 creating Q-Q plots of \code{u} or \code{v}, which should be independently distributed according to a Uniform(0,1) 
 distribution. The option \code{ppplot(u,v)} will generate a P-P plot that compares
 the empirical distribution of \code{(u,v)} with its theoretical
-value, \code{F(u,v) = uv}, at a discrete grid of points.}
+value, \code{F(u,v) = uv}, at a discrete grid of points. If the model is fitted with \kbd{fv = NULL}, i.e., an unpenalized fixed-effects model, the plots involving \code{v} are not available.
+}
 \item{\ldots}{additional graphical parameters, that can include \kbd{xlim, ylim, xlab, ylab, col, lwd, cex.lab, cex.axis, axes, frame.plot}. 
 See \code{\link{par}}.}
 }

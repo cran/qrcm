@@ -1,7 +1,7 @@
 qrcm 3.2
 =============
 
-Changes with respect to version 3.1
+Changes with respect to version 3.2
 ------------------
 
-* bug fix
+* allow for unpenalized fixed effects

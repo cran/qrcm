@@ -23,6 +23,9 @@ iqrL <- function(fx, fu = ~ slp(u,3), fz = ~ 1, fv = ~ -1 + I(qnorm(v)), id, wei
 		mf <- eval(mf, parent.frame())
 		mf
 	}
+	if(is.null(fv)){fv <- ~ -1 + I(qnorm(v)); fz <- ~ 1; lambda <- 0}
+	else{lambda <- 1}
+	attr(fv, "lambda") <- lambda
 
 	cl <- match.call()
 	mf <- match.call(expand.dots = FALSE)
@@ -397,6 +400,7 @@ iqrL.internal <- function(mf1, mf2, cl, fu,fv, s.theta, s.phi, tol = 1e-5, maxit
 
 	init <- start.iqrL(y,V1$X,V2$X,id, A0$w1, A0$w2, bfun1,bfun2, s.theta,s.phi, S1,S2)
 	theta <- init$theta; phi <- init$phi; alpha <- init$alpha
+	lambda <- attr(phi, "lambda") <- attr(fv, "lambda")
 
 	r1 <- sum(s.theta)
 	r2 <- sum(s.phi)
@@ -462,8 +466,8 @@ iqrL.internal <- function(mf1, mf2, cl, fu,fv, s.theta, s.phi, tol = 1e-5, maxit
 		y_alpha = y_alpha, v = v[id], u = u)
 	loss.theta <- sum(fit$fit.theta$loss*A0$w1)*(S1$y$M - S1$y$m)/10
 	loss.phi <- sum(fit$fit.phi$loss*A0$w2)*(S2$y$M - S2$y$m)/10
-	loss <- c(obj = loss.theta + loss.phi, obj1 = loss.theta, obj2 = loss.phi)
-	attr(loss, "df") <- c(df = sum(s.theta) + sum(s.phi), df1 = sum(s.theta), df2 = sum(s.phi))
+	loss <- c(obj = loss.theta + lambda*loss.phi, obj1 = loss.theta, obj2 = lambda*loss.phi)
+	attr(loss, "df") <- c(df = sum(s.theta) + lambda*sum(s.phi), df1 = sum(s.theta), df2 = lambda*sum(s.phi))
 	
 	# output
 
@@ -493,6 +497,7 @@ iqrL.internal <- function(mf1, mf2, cl, fu,fv, s.theta, s.phi, tol = 1e-5, maxit
 		mf.theta = mf1, mf.phi = mf2, s.theta = s.theta, s.phi = s.phi,
 		fit = fit.alpha
 	)
+	attr(fit$fit, "n.id") <- nrow(mf2)
 
 	jnames <- function(x,y){paste(x,y, sep = ":")}
 	jnames.theta <- c(sapply(attr(A1$bfun, "coef.names"), jnames, y = S1$X$coef.names))
@@ -502,6 +507,8 @@ iqrL.internal <- function(mf1, mf2, cl, fu,fv, s.theta, s.phi, tol = 1e-5, maxit
 	
 	dimnames(fit$theta) <- dimnames(fit$s.theta) <- list(S1$X$coef.names, S1$B$coef.names)
 	dimnames(fit$phi) <- dimnames(fit$s.phi) <- list(S2$X$coef.names, S2$B$coef.names)
+	
+	if(lambda == 0){fit$phi <- fit$covar.phi <- fit$s.phi <- fit$fit$v <- NULL}
 
 	# finish
 
@@ -553,6 +560,8 @@ iqrL.ee <- function(par, x,xw, bfun,
 #############################################################################################################
 #############################################################################################################
 
+#' @keywords internal
+#' @noRd
 start.iqrL <- function(y,x,z,id, w1,w2, bfun1,bfun2, s.theta,s.phi, S1,S2){
 
 	alpha <- c(tapply(y,id,median))
@@ -937,6 +946,7 @@ iqrL.newton <- function(par, y,x,xw, bfun, s, tol, maxit, safeit, eps){
 # if long = TRUE, a grid of 4095 elements is used instead of the "standard" grid of 1023.
 alpha.bisec <- function(theta,phi,y,x,z,id,w1,w2,bfun1,bfun2, long = FALSE){
   
+  lambda <- attr(phi, "lambda")
   n <- nrow(x)
   n.id <- nrow(z)
   k1 <- ncol(theta)
@@ -960,7 +970,7 @@ alpha.bisec <- function(theta,phi,y,x,z,id,w1,w2,bfun1,bfun2, long = FALSE){
       eta <- .rowSums(xtheta*bfun1$bp[u,, drop = FALSE], n, k1)
       u <- u + as.integer(sign(y_alpha - eta)*(2^(r - i1)))
     }		
-    obj <- tapply(w1*(0.5 - bfun1$p[u]),id,sum) + w2*(bfun2$p[v] - 0.5)
+    obj <- tapply(w1*(0.5 - bfun1$p[u]),id,sum) + lambda*w2*(bfun2$p[v] - 0.5)
     if(i2 < (r + 1)){v <- v - as.integer(sign(obj)*(2^(r - i2)))}
   }
   list(alpha = alpha, y_alpha = y_alpha, v = v, u = u, obj = obj, xtheta = xtheta, zphi = zphi)
@@ -974,6 +984,8 @@ alpha.bisec <- function(theta,phi,y,x,z,id,w1,w2,bfun1,bfun2, long = FALSE){
 
 # Continues to bisect beyond v = 0 and v = 1
 alpha.bisec.out <- function(A, theta,phi,y,x,z,id,w1,w2,bfun1,bfun2, long = FALSE){
+  
+  lambda <- attr(phi, "lambda")
   
   r <- 10 + 2*long; cc <- 2^(r - 1)
   outL <- which(A$v == 1)
@@ -1014,7 +1026,7 @@ alpha.bisec.out <- function(A, theta,phi,y,x,z,id,w1,w2,bfun1,bfun2, long = FALS
       eta <- .rowSums(xtheta*bfun1$bp[u,, drop = FALSE], n, k1)
       u <- u + as.integer(sign(y_alpha - eta)*(2^(r - i1)))
     }
-    obj <- tapply(w1*(0.5 - bfun1$p[u]),id,sum) + w2*v
+    obj <- tapply(w1*(0.5 - bfun1$p[u]),id,sum) + lambda*w2*v
 
     if(max(abs(u - u0)) < 2){break}
     u0 <- u
@@ -1039,6 +1051,7 @@ iqrL.fit <- function(theta,phi, y,alpha, x,xw,z,zw, id, w1,w2, bfun1,bfun2, s.th
 	maxit.theta, safeit.theta, maxit.phi, safeit.phi, eps, tol, maxit){
 
 	par0 <- c(theta,phi); L0 <- Inf; long <- FALSE
+	lambda <- attr(phi, "lambda")
 
 	for(i in 1:maxit){
 
@@ -1055,7 +1068,7 @@ iqrL.fit <- function(theta,phi, y,alpha, x,xw,z,zw, id, w1,w2, bfun1,bfun2, s.th
 		
 		new.theta <- fit.theta.new$par; new.phi <- fit.phi.new$par
 		par <- c(new.theta, new.phi)
-		L <- sum(fit.theta.new$loss) + sum(fit.phi.new$loss)
+		L <- sum(fit.theta.new$loss) + lambda*sum(fit.phi.new$loss)
 
 		if(L > L0 & !long){long <- TRUE; next}
 		if(i > 1){if(max(abs(par - par0)) < tol | L0 - L < tol){break}}

@@ -16,6 +16,7 @@ Predictions from an object of class \dQuote{\code{iqrL}}.
   \item{level}{
    a numeric scalar. Use \code{level = 1} to predict \eqn{y_{it} - \alpha_i}{y[it] - \alpha[i]}, and 
    \code{level = 2} to predict \eqn{\alpha_i}{\alpha[i]} (see \code{\link{iqrL}} for the notation).
+   If the model is fitted with \kbd{fv = NULL}, i.e., an unpenalized fixed-effects model, \code{level = 2} is not available.
   }
   \item{type}{
   a character string specifying the type of prediction. See \sQuote{Details}.

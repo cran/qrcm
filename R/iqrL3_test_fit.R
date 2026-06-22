@@ -4,6 +4,12 @@
 # ks statistic for H0: u,v ~ independent U(0,1)
 ks <- function(u,v,id,w1,w2, K = 25){
 
+  if(is.null(v)){ # handle unpenalized case
+    N <- length(u)
+    DD <- sort(u) - (1:N)/N
+    return(list(ks = max(abs(DD))))
+  }
+  
   v_long <- v; v <- v[!duplicated(id)]
   N <- length(u); n <- length(v)
   k1 <- pmin(K, floor(sqrt(N)))
@@ -67,14 +73,15 @@ test.fit.iqrL <- function(object, R = 100, trace = FALSE, ...){
   v <- object$fit$v
 
   n <- nrow(mf1)
-  n.id <- nrow(mf2)
+  n.id <- attr(object$fit, "n.id")
   id <- as.numeric(as.factor(mf1$'(id)'))
-  matchID <- match(mf1$'(id)',mf2$'(id)')
+  matchID <- match(mf1$'(id)', mf2$'(id)')
   q1 <- ncol(x); q2 <- ncol(z)
 
   maxit.theta <- 5 + 2*sum(s.theta)
   maxit.phi <- 5 + 2*sum(s.phi)
   maxit <- object$n.it*(1 + !object$converged) + maxit.theta + maxit.phi
+
   safeit.theta <- 2 + sum(s.theta)
   safeit.phi <- 2 + sum(s.phi)
 
@@ -88,6 +95,13 @@ test.fit.iqrL <- function(object, R = 100, trace = FALSE, ...){
   
   test <- NULL
   if(trace){pb <- txtProgressBar(min = 0, max = R, style = 3)}
+  
+  if(is.null(phi.bis)){ # handle unpenalized case
+    s.phi <- matrix(1,1,1)
+    lambda <- FALSE
+    alpha <- (object$fit$alpha[!duplicated(object$fit$id)] - statsy2$m)*M2
+  }
+  else lambda <- TRUE
 
   for(b in 1:R){
 
@@ -98,22 +112,25 @@ test.fit.iqrL <- function(object, R = 100, trace = FALSE, ...){
     y_alpha <- (.rowSums(beta*x.bis, n, q1) - statsy1$m)*M1
 
     # alpha
-    gamma <- tcrossprod(apply_bfun(bfun2.bis, runif(n.id), "bfun"), phi.bis)
-    alpha <- (.rowSums(gamma*z.bis, n.id, q2) - statsy2$m)*M2
-
+    if(lambda){
+      gamma <- tcrossprod(apply_bfun(bfun2.bis, runif(n.id), "bfun"), phi.bis)
+      alpha <- (.rowSums(gamma*z.bis, n.id, q2) - statsy2$m)*M2
+    }
 
     # fit the model
     eps0 <- 0.025 # more prudent than iqrL.iternal: "true" starting points may be far from the solution
     gTol <- 1
     for(i in 1:5){
-      fit <- iqrL.fit(theta,phi, y_alpha + alpha[matchID], alpha, x,xw,z,zw, id, w1,w2, bfun1,bfun2, s.theta,s.phi, 
+      fit <- iqrL.fit(theta, phi, y_alpha + alpha[matchID], alpha, x,xw,z,zw, id, w1,w2, bfun1,bfun2, s.theta,s.phi, 
 			maxit.theta + i, safeit.theta + i, maxit.phi + i, safeit.phi + i, eps0, tol = 1e-5, maxit)
       fit.ok <- (fit$fullrank & max(abs(fit$g)/sqrt(n)) < gTol)
       if(fit.ok){break}
       gTol <- gTol * 2
       eps0 <- eps0/2
     }
-    if(fit.ok){test[b] <- ks(fit$A$u,fit$A$v[matchID],id,w1,w2, K = 25)$ks}
+    if(fit.ok){
+      if(!lambda){fit$A$v <- NULL}
+      test[b] <- ks(fit$A$u,fit$A$v[matchID],id,w1,w2, K = 25)$ks}
   }
   if(trace){close(pb)}
   out <- cbind(test0, mean(test >= test0, na.rm = TRUE))

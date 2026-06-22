@@ -11,8 +11,8 @@ This package implements quantile regression coefficient modeling (qrcm), in whic
 \tabular{ll}{
 Package: \tab qrcm\cr
 Type: \tab Package\cr
-Version: \tab 3.2\cr
-Date: \tab 2025-04-03\cr
+Version: \tab 3.3\cr
+Date: \tab 2026-06-21\cr
 License: \tab GPL-2\cr
 }
 The function \code{\link{iqr}} permits specifying regression models for cross-sectional data, allowing for censored and truncated outcomes. The function \code{\link{iqrL}} can be used to analyze longitudinal data in which the same individuals are observed repeatedly.
@@ -42,7 +42,7 @@ Hsu, C.Y., Wen, C.C., and Chen, Y.H. (2021). \emph{Quantile function regression 
 
 Sottile, G., and Frumento, P. (2023). \emph{Parametric estimation of non-crossing quantile functions}. Statistical Modelling, 23 (2), 173-195.
 
-Corsini, L., and Frumento, P. (2025). \emph{Using parametric quantile regression to investigate determinants of unemployment duration}. Unpublished manuscript.
+Corsini, L., and Frumento, P. (2026). \emph{Using parametric quantile regression to investigate determinants of unemployment duration}. Empirical Economics 70 (40).
 
 }
 

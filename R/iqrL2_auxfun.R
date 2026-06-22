@@ -18,6 +18,7 @@
 summary.iqrL <- function(object, p, level, cov = FALSE, ...){
 
 	o <- object
+	lambda <- !is.null(o$phi)
 	o1 <- list(mf = o$mf.theta, coefficients = o$theta, s = o$s.theta, covar = o$covar.theta)
 	o2 <- list(mf = o$mf.phi, coefficients = o$phi, s = o$s.phi, covar = o$covar.phi)
 	if(missing(p)){
@@ -26,14 +27,16 @@ summary.iqrL <- function(object, p, level, cov = FALSE, ...){
 		v1 <- sqrt(diag(o$covar.theta))
 		v1 <- matrix(v1, q1 <- nrow(theta), k1 <- ncol(theta))
 		dimnames(v1) <- dimnames(theta)
-
-		phi <- o$phi
-		v2 <- sqrt(diag(o$covar.phi))
-		v2 <- matrix(v2, q2 <- nrow(phi), k2 <- ncol(phi))
-		dimnames(v2) <- dimnames(phi)
-
 		test1 <- (if(q1*k1 == 1) NULL else iqr.waldtest(o1))
-		test2 <- (if(q2*k2 == 1) NULL else iqr.waldtest(o2))
+
+		if(lambda){
+		  phi <- o$phi
+		  v2 <- sqrt(diag(o$covar.phi))
+		  v2 <- matrix(v2, q2 <- nrow(phi), k2 <- ncol(phi))
+		  dimnames(v2) <- dimnames(phi)
+		  test2 <- (if(q2*k2 == 1) NULL else iqr.waldtest(o2))
+		}
+		else{phi <- v2 <- test2 <- NULL}
 
 		out <- list(converged = o$converged, n.it = o$n.it,
 			theta = theta, se.theta = v1, 
@@ -44,13 +47,14 @@ summary.iqrL <- function(object, p, level, cov = FALSE, ...){
 
 		out$obj.function <- o$obj.function[1]
 		out$n <- nrow(o$mf.theta)
-		out$n.id <- nrow(o$mf.phi)
-		out$free.par <- sum(o$s.theta) + sum(o$s.phi)
+		out$n.id <- attr(o$fit, "n.id")
+		out$free.par <- sum(o$s.theta) + lambda*sum(o$s.phi)
 	}
 	else{
 		if(!is.atomic(level) || length(level) != 1 || !(level %in% 1:2)){
 			stop("set level = 1 to summarize beta(u), and level = 2 to summarize gamma(v)")
 		}
+	  if(level == 2 & !lambda){stop("no level 2 fitted (fv = NULL)")}
 		oo <- (if(level == 1) o1 else o2)
 		s <- (if(level == 1) o$s.theta else o$s.phi)
 		out <- list()
@@ -76,6 +80,8 @@ summary.iqrL <- function(object, p, level, cov = FALSE, ...){
 #' @export
 print.summary.iqrL <- function(x, digits = max(3L, getOption("digits") - 3L), ...){
 
+  lambda <- !is.null(x$phi)
+  
 	cat("\nCall: ", paste(deparse(x$call), sep = "\n", collapse = "\n"), "\n\n", sep = "")
 	cat("######################", "\n")
 	cat("######################", "\n\n")
@@ -106,6 +112,8 @@ print.summary.iqrL <- function(x, digits = max(3L, getOption("digits") - 3L), ..
 		cat("######################", "\n")
 		cat("######################", "\n\n")
 
+		if(lambda){
+		  
 		cat("Coefficients: phi\n")
 		print.default(format(x$phi, digits = digits), print.gap = 2L, quote = FALSE)
 		cat("\n")
@@ -116,6 +124,8 @@ print.summary.iqrL <- function(x, digits = max(3L, getOption("digits") - 3L), ..
 		
 		cat("######################", "\n")
 		cat("######################", "\n\n")
+
+		}
 
 		cat("Wald test for rows of theta:\n")
 		if(!is.null(x$test.row.theta)){
@@ -135,9 +145,12 @@ print.summary.iqrL <- function(x, digits = max(3L, getOption("digits") - 3L), ..
 		else{cat("(omitted - theta has a single column)")}
 		cat("\n\n")
 
+
 		cat("######################", "\n")
 		cat("######################", "\n\n")
 
+		if(lambda){
+		  
 		cat("Wald test for rows of phi:\n")
 		if(!is.null(x$test.row.phi)){
 			printCoefmat(x$test.row.phi, digits = digits, signif.stars = TRUE, 
@@ -158,6 +171,7 @@ print.summary.iqrL <- function(x, digits = max(3L, getOption("digits") - 3L), ..
 
 		cat("######################", "\n")
 		cat("######################", "\n\n")
+		}
 
 		cat("Minimized loss function:", x$obj.function)
 		cat("\n")
@@ -202,6 +216,7 @@ print.summary.iqrL <- function(x, digits = max(3L, getOption("digits") - 3L), ..
 #' @export
 plot.iqrL <- function(x, conf.int = TRUE, polygon = TRUE, which = NULL, ask = TRUE, ...){
 
+  lambda <- (!is.null(x$phi))
 	plot.iqrL.int <- function(p,pred,j,conf.int,L, level){
   
 		coe <- pred[[j]][,2]; low <- pred[[j]]$low; up <- pred[[j]]$up
@@ -231,7 +246,7 @@ plot.iqrL <- function(x, conf.int = TRUE, polygon = TRUE, which = NULL, ask = TR
 	}
 
 	q1 <- nrow(x$theta)
-	q2 <- nrow(x$phi)
+	q2 <- (if(lambda) nrow(x$phi) else 0)
 	q <- q1 + q2
 	level <- c(rep(1,q1), rep(2,q2))
 	L <- list(...)
@@ -239,15 +254,20 @@ plot.iqrL <- function(x, conf.int = TRUE, polygon = TRUE, which = NULL, ask = TR
 	if(is.null(L$lwd)){L$lwd <- 2}
 	if(is.null(L$col)){L$col <- "black"}
 	L$labels1 <- paste0("beta:", rownames(x$theta))
-	L$labels2 <- paste0("gamma:", rownames(x$phi))
-	L$labels <- c(L$labels1, L$labels2, "qqplot(u)", "qqplot(v)", "ppplot(u,v)")
+	if(lambda){
+	  L$labels2 <- paste0("gamma:", rownames(x$phi))
+	  L$labels <- c(L$labels1, L$labels2, "qqplot(u)", "qqplot(v)", "ppplot(u,v)")
+	}
+	else{L$labels <- c(L$labels1, "qqplot(u)")}
+ 
 
 	p <- seq.int(max(0.001,L$xlim[1]), min(0.999,L$xlim[2]), length.out = 100)
 	pred1 <- predict.iqrL(x, level = 1, p = p, type = "coef", se = conf.int)
-	pred2 <- predict.iqrL(x, level = 2, p = p, type = "coef", se = conf.int)
+	pred2 <- (if(lambda) predict.iqrL(x, level = 2, p = p, type = "coef", se = conf.int) else NULL)
 
 	if(!is.null(which) | !ask){
 		if(is.null(which)){which <- 1:q}
+	  if(any(!(which %in% 1:q))){stop("invalid 'which' argument", call. = FALSE)}
 		for(pick in which){
 			pred <- (if(pick <= q1) pred1 else pred2)
 			j <- (if(pick <= q1) pick else pick - q1)
@@ -256,7 +276,7 @@ plot.iqrL <- function(x, conf.int = TRUE, polygon = TRUE, which = NULL, ask = TR
 	}
 	else{
 		pick <- 1
-		while(pick > 0 && pick <= q + 3){
+		while(pick > 0 && pick <= q + 1 + 2*lambda){
 			pick <- menu(L$labels, title = "Make a plot selection (or 0 to exit):\n")
 			if(pick > 0 && pick <= q){
 				pred <- (if(pick <= q1) pred1 else pred2)
@@ -314,6 +334,7 @@ predict.iqrL <- function(object, level, type = c("coef", "CDF", "QF", "sim"), ne
 		if(type == "sim"){stop("set level = 1 to simulate y - alpha, and level = 2 to simulate alpha")}
 	}
 	o <- object
+	if(is.null(o$phi) & level == 2){stop("no level 2 fitted (fv = NULL)")}
 	if(level == 1){oo <- list(mf = o$mf.theta, coefficients = o$theta, covar = o$covar.theta, y = o$fit$y_alpha)}
 	else{oo <- list(mf = o$mf.phi, coefficients = o$phi, covar = o$covar.phi, y = o$fit$alpha[!duplicated(o$fit$id)])}
 	predict_iqrL.internal(oo, level = level, type = type, newdata = newdata, p = p, se = se)
@@ -419,18 +440,19 @@ model.matrix.iqrL <- function(object, ...){
   mf1 <- object$mf.theta
   mt1 <- terms(mf1)
   x1 <- model.matrix(mt1, mf1)
+  if(is.null(object$phi)){return(list(x = x1, z = NULL))}
 
   mf2 <- object$mf.phi
   mt2 <- terms(mf2)
   x2 <- model.matrix(mt2, mf2)
 
-  list(x1 = x1, x2 = x2)
+  list(x = x1, z = x2)
 }
 #' @export
 vcov.iqrL <- function(object, ...){list(covar.theta = object$covar.theta, covar.phi = object$covar.phi)}
 
 #' @export
-nobs.iqrL <- function(object, ...){list(n = nrow(object$mf.theta), n.id = nrow(object$mf.phi))}
+nobs.iqrL <- function(object, ...){list(n = nrow(object$mf.theta), n.id = attr(object$fit, "n.id"))}
 
 
 
@@ -448,9 +470,11 @@ print.iqrL <- function (x, digits = max(3L, getOption("digits") - 3L), ...){
 	cat("Coefficients: theta\n")
 	print.default(format(x$theta, digits = digits), print.gap = 2L, quote = FALSE)
 	
+	if(!is.null(x$phi)){
 	cat("\n")
 	cat("Coefficients: phi\n")
 	print.default(format(x$phi, digits = digits), print.gap = 2L, quote = FALSE)
+	}
 
 	cat("\n")
 	cat("Minimized Loss function:\n")

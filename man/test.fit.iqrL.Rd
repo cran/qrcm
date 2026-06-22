@@ -25,7 +25,7 @@ distribution under the null hypothesis is evaluated with Monte Carlo.
   This function permits assessing goodness of fit by testing the null hypothesis
 that the estimated \code{(u,v)} values are independent uniform variables. 
 To evaluate the distribution of the test statistic under the true model, a Monte Carlo
-method is used (Frumento et al, 2021).
+method is used (Frumento et al, 2021). If the model is fitted with \kbd{fv = NULL}, i.e., an unpenalized fixed-effects model, uniformity of \code{u} is tested as in \code{\link{test.fit.iqr}}.
 }
 \value{
 a vector with entries \code{statistic} and \code{p.value}, 

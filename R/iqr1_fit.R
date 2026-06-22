@@ -860,6 +860,8 @@ iciqr.ee <- function(theta, y,z,d,X,Xw, bfun,
  # However, my current judgement is that pch.fit.ct applied to the middlepoint is good enough - and much faster. 
 # I leave a default type ("ctiqr", but could be whatever), to avoid problems with qrcmNP which does not
   # specify the "type" argument.
+#' @keywords internal
+#' @noRd
 start.iqr <- function(y,z,d, x, weights, bfun, df, yy, zz, s, type = "ctiqr"){
 
 	if(is.null(yy)){p.star <- (rank(y, ties.method = "first") - 0.5)/length(y)}
